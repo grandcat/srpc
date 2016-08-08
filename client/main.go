@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/grandcat/flexsmc/registry"
 	util "github.com/grandcat/grpctls/common"
 	proto "github.com/grandcat/grpctls/helloworld"
 	"golang.org/x/net/context"
@@ -15,7 +16,7 @@ import (
 )
 
 const (
-	address     = "localhost:50051"
+	address     = "sn42.flexsmc.local"
 	defaultName = "world"
 )
 
@@ -47,10 +48,11 @@ func main() {
 		// InsecureSkipVerify: true,
 	})
 
-	// TODO: do automatic address resolution and pooled dial here
+	// Custom name resolution using standard RoundRobin balancer
+	ba := grpc.RoundRobin(new(registry.StaticAddrMap))
 
 	// Set up a connection to the server.
-	conn, err := grpc.Dial(address, grpc.WithTransportCredentials(ta))
+	conn, err := grpc.Dial(address, grpc.WithTransportCredentials(ta), grpc.WithBalancer(ba))
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
