@@ -18,7 +18,7 @@ const (
 
 var (
 	targetAddr = map[string]string{
-		"sn42.flexsmc.local": "127.0.0.1:50051",
+		"gw4242.flexsmc.local": "[::1]:50051",
 	}
 )
 
@@ -31,12 +31,12 @@ type StaticAddrMap struct {
 func (sam *StaticAddrMap) Resolve(target string) (naming.Watcher, error) {
 	// Check responsibility
 	if !(strings.HasSuffix(target, uriSuffix)) {
-		return nil, fmt.Errorf("Bonjour resolver can only handle URIs ending with %s", uriSuffix)
+		return nil, fmt.Errorf("StaticAddrMap resolver can only handle URIs ending with %s", uriSuffix)
 	}
 
 	_, cancel := context.WithCancel(context.Background())
 
-	log.Println("new Bonjour resolver requested")
+	log.Println("new StaticAddrMap resolver requested")
 	w := &resolvWatcher{
 		target: target,
 		cancel: cancel,
@@ -69,7 +69,7 @@ func (rw *resolvWatcher) Next() ([]*naming.Update, error) {
 			Op:   naming.Add,
 			Addr: addr,
 		}}
-		log.Printf("bonjour: resolving %s\n to %s", rw.target, res[0].Addr)
+		log.Printf("StaticAddrMap: resolving %s to %s \n", rw.target, res[0].Addr)
 
 		return res, nil
 

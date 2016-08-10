@@ -2,11 +2,11 @@ package main
 
 import (
 	"crypto/tls"
-	"crypto/x509"
 	"flag"
 	"log"
 	"os"
 
+	"github.com/grandcat/flexsmc/authentication"
 	"github.com/grandcat/flexsmc/registry"
 	util "github.com/grandcat/grpctls/common"
 	proto "github.com/grandcat/grpctls/helloworld"
@@ -16,13 +16,13 @@ import (
 )
 
 const (
-	address     = "sn42.flexsmc.local"
+	peerid      = "gw4242.flexsmc.local"
 	defaultName = "world"
 )
 
 var (
-	certFile       = flag.String("cert_file", "testdata/cert_client1.pem", "Client TLS cert file")
-	keyFile        = flag.String("key_file", "testdata/key_client1.pem", "Client TLS key file")
+	certFile       = flag.String("cert_file", "testdata/cert_client2.pem", "Client TLS cert file")
+	keyFile        = flag.String("key_file", "testdata/key_client2.pem", "Client TLS key file")
 	serverCertFile = flag.String("client_cert_file", "testdata/cert_server.pem", "Server TLS cert file as CA")
 )
 
@@ -33,18 +33,19 @@ func main() {
 	if err != nil {
 		log.Panicf("load peer cert/key error:%v", err)
 	}
-	// Load server (CA) cert
-	caCertPool := x509.NewCertPool()
+	// Load server cert (peer in this case)
+	peerCerts := authentication.NewPeerCertMgr()
 	caCert, err := util.ReadCertFromPEM(*serverCertFile)
 	if err != nil {
 		panic(err)
 	}
-	caCertPool.AddCert(caCert)
+	peerCerts.AddCert(caCert, authentication.Primary)
+	log.Println("Server cert CN:", caCert.Subject.CommonName)
 
 	ta := credentials.NewTLS(&tls.Config{
 		Certificates: []tls.Certificate{peerCert},
-		RootCAs:      caCertPool,
-		ServerName:   "stefan.local", //< if domain name of server certificate is wrong
+		RootCAs:      peerCerts.ManagedCertPool,
+		ServerName:   peerid, //< if domain name of server certificate is wrong
 		// InsecureSkipVerify: true,
 	})
 
@@ -52,7 +53,7 @@ func main() {
 	ba := grpc.RoundRobin(new(registry.StaticAddrMap))
 
 	// Set up a connection to the server.
-	conn, err := grpc.Dial(address, grpc.WithTransportCredentials(ta), grpc.WithBalancer(ba))
+	conn, err := grpc.Dial(peerid, grpc.WithTransportCredentials(ta), grpc.WithBalancer(ba))
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
