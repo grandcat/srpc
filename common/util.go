@@ -9,7 +9,7 @@ import (
 
 // ReadCertFromPEM reads a PEM file from disk and converts it to the internal
 // Certificate data structure
-// Note: this functions is largely based on x509.AppendCertsFromPEM()
+// Note: this functions is largely borrowed from x509.AppendCertsFromPEM()
 func ReadCertFromPEM(filename string) (*x509.Certificate, error) {
 	clientCertStream, err := ioutil.ReadFile(filename)
 	if err != nil {

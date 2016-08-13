@@ -1,11 +1,15 @@
 package authentication
 
 import (
+	"bufio"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -89,7 +93,7 @@ func (cm *PeerCertMgr) AddCert(cert *x509.Certificate, role CertRole) (CertFinge
 	cm.peerCertsByCN[cn] = append(cm.peerCertsByCN[cn], newCert)
 	// Associate cert with its unique Sha256 fingerprint
 	cm.peerCertsByHash[fp] = newCert
-	log.Println("Cert fingerprint:", base64.StdEncoding.EncodeToString([]byte(fp)))
+	log.Println("Cert fingerprint:", fp)
 
 	// XXX: temporarily add to CertPool; should require acceptance first
 	cm.ManagedCertPool.AddCert(cert)
@@ -170,7 +174,84 @@ func (cm *PeerCertMgr) generateCertPool() {
 	cm.ManagedCertPool = pool
 }
 
-func (cm *PeerCertMgr) Export() {
-	jsonString, err := json.Marshal(cm.peerCertsByHash)
-	fmt.Println(string(jsonString), "Err:", err)
+func (cm *PeerCertMgr) LoadFromPath(basepath string) {
+	// Extract base path
+	basepath = filepath.Dir(basepath) + string(os.PathSeparator)
+	// Load meta data
+	// Based on that, we decide which certificates are valid to be kept in memory
+	js, err := ioutil.ReadFile(basepath + "peer_certificates.meta.json")
+	if err != nil {
+		panic(err)
+	}
+
+	var managedCerts map[CertFingerprint]*PeerCert
+	err = json.Unmarshal(js, &managedCerts)
+	if err != nil {
+		panic(err)
+	}
+
+	// Load all certificates from PEM file. Based on the meta information, we
+	// decide to keep it or reject it
+	pemCerts, err := ioutil.ReadFile(basepath + "peer_certificates.pem")
+	if err != nil {
+		panic(err)
+	}
+
+	// Code borrowed from stdlib `cert_pool.go`
+	for len(pemCerts) > 0 {
+		var block *pem.Block
+		block, pemCerts = pem.Decode(pemCerts)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
+			continue
+		}
+
+		c, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			continue
+		}
+
+		// Only add certificate if it is part of the managed ones
+		if meta, exists := managedCerts[Sha256Fingerprint(c)]; exists {
+			cm.AddCert(c, meta.Role)
+		} else {
+			fmt.Errorf("Skipping certificate %s. Not part of meta file.\n",
+				Sha256Fingerprint(c))
+		}
+
+	}
+
+}
+
+func (cm *PeerCertMgr) StoreToPath(basepath string) {
+	// Extract base path
+	basepath = filepath.Dir(basepath) + string(os.PathSeparator)
+
+	// Write metadata for all managed peer certificates
+	js, err := json.Marshal(cm.peerCertsByHash)
+	if err != nil {
+		panic(err)
+	}
+	ioutil.WriteFile(basepath+"peer_certificates.meta.json", js, 0644)
+
+	// Write all certificates to a common PEM encoded file
+	log.Println("Exporting all certificates from peer cert pool")
+	fo, err := os.Create(basepath + "peer_certificates.pem")
+	if err != nil {
+		panic(err)
+	}
+	defer fo.Close()
+	// make a write buffer
+	wr := bufio.NewWriter(fo)
+
+	for _, c := range cm.peerCertsByHash {
+		log.Println("Writing cert:", c.Certificate.Subject.CommonName)
+		b := &pem.Block{Type: "CERTIFICATE", Bytes: c.Certificate.Raw}
+		if err := pem.Encode(wr, b); err != nil {
+			fmt.Errorf("Encoding certificate failed:%v\n", err)
+		}
+	}
+	wr.Flush()
 }
