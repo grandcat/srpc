@@ -8,7 +8,7 @@ import (
 )
 
 type Authorize interface {
-	Getii() *PeerCertMgr
+	GetPeerCerts() *PeerCertMgr
 }
 
 type AuthState struct {
@@ -21,15 +21,16 @@ func NewAuthState() AuthState {
 	}
 }
 
-func (as *AuthState) Getii() *PeerCertMgr {
+func (as *AuthState) GetPeerCerts() *PeerCertMgr {
 	return as.PeerCerts
 }
 
 func Authi(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
 	log.Println("Intercepted call. Func:", info.FullMethod)
 	srvCtx := info.Server.(Authorize)
+	pcm := srvCtx.GetPeerCerts()
 	// log.Println("Server:", srvCtx)
-	log.Println("Getii in Authi:", srvCtx.Getii())
+	log.Println("Getii in Authi:", pcm)
 
 	return handler(ctx, req)
 }

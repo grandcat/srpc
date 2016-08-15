@@ -47,7 +47,8 @@ func (sc *ServerContext) Geti() *authentication.AuthState {
 
 func Prepare(ctx Serverize) *grpc.Server {
 	// Prepare server instance
-	srv := ctx.Geti()
+	// srv := ctx.Geti()
+	peerCertMgr := ctx.GetPeerCerts()
 
 	// Load server key pair
 	peerCert, err := tls.LoadX509KeyPair(*certFile, *keyFile)
@@ -74,13 +75,13 @@ func Prepare(ctx Serverize) *grpc.Server {
 		// log.Println(srv.certMgr.AddCert(clientCert2, authentication.Primary))
 		// Persist managed certificates to disk
 		// srv.certMgr.StoreToPath("")
-		srv.PeerCerts.LoadFromPath("")
+		peerCertMgr.LoadFromPath("")
 	}()
 
 	// Setup HTTPS client
 	ta := credentials.NewTLS(&tls.Config{
 		Certificates: []tls.Certificate{peerCert},
-		ClientCAs:    srv.PeerCerts.ManagedCertPool,
+		ClientCAs:    peerCertMgr.ManagedCertPool,
 		// NoClientCert
 		// RequestClientCert
 		// RequireAnyClientCert
@@ -104,41 +105,3 @@ func Prepare(ctx Serverize) *grpc.Server {
 
 	return s
 }
-
-// func authenticateClient(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
-// 	srvCtx := info.Server.(*ServerContext)
-// 	log.Println("[", srvCtx.cnt, "] Intercepted call. Func:", info.FullMethod)
-// 	srvCtx.cnt++
-
-// 	// Check certificate sent by client
-// 	pr, ok := peer.FromContext(ctx)
-// 	if !ok {
-// 		return nil, fmt.Errorf("Failed to get peer from ctx")
-// 	}
-// 	switch info := pr.AuthInfo.(type) {
-// 	case credentials.TLSInfo:
-// 		peerCert := info.State.PeerCertificates[0]
-// 		// log.Println("[", info.State.ServerName, "] Peer Cert:", peerCert.Signature)
-
-// 		cn := peerCert.Subject.CommonName
-// 		log.Println("Subject:", cn)
-// 		log.Println("Raw Subject:", string(peerCert.RawSubject)) // same as RawIssuer for self-signed certs
-// 		// log.Println("Raw Issuer:", string(peerCert.RawIssuer))
-
-// 		// Check for correct peer's identity being valid, otherwise abort
-// 		identity, err := srvCtx.PeerCerts.VerifyPeerIdentity(peerCert)
-// 		if err == nil {
-// 			log.Printf("Peer identity ok: %v \n", identity)
-// 		} else {
-// 			return nil, err
-// 		}
-
-// 	default:
-// 		return nil, fmt.Errorf("Unknown AuthInfo type")
-// 	}
-
-// 	log.Println("Peer src addr:", pr.Addr)
-
-// 	// Is a valid peer -> handle RPC request as usual
-// 	return handler(ctx, req)
-// }

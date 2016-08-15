@@ -25,7 +25,6 @@ func (s *Logic) SayHello(ctx context.Context, in *proto.HelloRequest) (*proto.He
 }
 
 func main() {
-	// myServer := server.NewServer()
 	allServer := &Logic{server.NewServer()}
 	// myServer := LogicEntity(baseServer)
 	// innerServer := server.Serverize(myServer)
