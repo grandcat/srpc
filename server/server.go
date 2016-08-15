@@ -40,7 +40,7 @@ func NewServer() ServerContext {
 	return ServerContext{authentication.NewAuthState(), 0}
 }
 
-func (sc ServerContext) Geti() *authentication.AuthState {
+func (sc *ServerContext) Geti() *authentication.AuthState {
 	log.Println("Geti called in ServerContext")
 	return &sc.AuthState
 }
