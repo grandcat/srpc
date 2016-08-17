@@ -174,12 +174,12 @@ func (cm *PeerCertMgr) generateCertPool() {
 	cm.ManagedCertPool = pool
 }
 
-func (cm *PeerCertMgr) LoadFromPath(basepath string) {
+func (cm *PeerCertMgr) LoadFromPath(dirpath string) {
 	// Extract base path
-	basepath = filepath.Dir(basepath) + string(os.PathSeparator)
+	dirpath = filepath.Dir(dirpath) + string(os.PathSeparator)
 	// Load meta data
 	// Based on that, we decide which certificates are valid to be kept in memory
-	js, err := ioutil.ReadFile(basepath + "peer_certificates.meta.json")
+	js, err := ioutil.ReadFile(dirpath + "peer_certificates.meta.json")
 	if err != nil {
 		panic(err)
 	}
@@ -192,7 +192,7 @@ func (cm *PeerCertMgr) LoadFromPath(basepath string) {
 
 	// Load all certificates from PEM file. Based on the meta information, we
 	// decide to keep it or reject it
-	pemCerts, err := ioutil.ReadFile(basepath + "peer_certificates.pem")
+	pemCerts, err := ioutil.ReadFile(dirpath + "peer_certificates.pem")
 	if err != nil {
 		panic(err)
 	}
@@ -225,20 +225,20 @@ func (cm *PeerCertMgr) LoadFromPath(basepath string) {
 
 }
 
-func (cm *PeerCertMgr) StoreToPath(basepath string) {
+func (cm *PeerCertMgr) StoreToPath(dirpath string) {
 	// Extract base path
-	basepath = filepath.Dir(basepath) + string(os.PathSeparator)
+	dirpath = filepath.Dir(dirpath) + string(os.PathSeparator)
 
 	// Write metadata for all managed peer certificates
 	js, err := json.Marshal(cm.peerCertsByHash)
 	if err != nil {
 		panic(err)
 	}
-	ioutil.WriteFile(basepath+"peer_certificates.meta.json", js, 0644)
+	ioutil.WriteFile(dirpath+"peer_certificates.meta.json", js, 0644)
 
 	// Write all certificates to a common PEM encoded file
 	log.Println("Exporting all certificates from peer cert pool")
-	fo, err := os.Create(basepath + "peer_certificates.pem")
+	fo, err := os.Create(dirpath + "peer_certificates.pem")
 	if err != nil {
 		panic(err)
 	}

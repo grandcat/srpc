@@ -3,7 +3,9 @@ package server
 import (
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"log"
+	"net"
 	"time"
 
 	"github.com/grandcat/flexsmc/authentication"
@@ -12,52 +14,66 @@ import (
 )
 
 var (
-	certFile        = flag.String("cert_file", "testdata/cert_server.pem", "Server TLS cert file")
-	keyFile         = flag.String("key_file", "testdata/key_server.pem", "Server TLS key file")
-	clientCertFile  = flag.String("client_cert_file", "testdata/cert_client1.pem", "Client1 TLS cert file for Auth")
-	clientCertFile2 = flag.String("client_cert_file2", "testdata/cert_client2.pem", "Client2 TLS cert file for Auth")
-	port            = flag.Int("port", 50051, "The server port")
+	port = flag.Int("port", 50051, "The server port")
 )
 
 type Serverize interface {
 	authentication.Authorize
-	Geti() *authentication.AuthState
+	GetAuthState() *authentication.AuthState
+}
+
+type options struct {
+	keyPairs []tls.Certificate
+}
+
+// ServerOption fills the option struct to configure TLS keys etc.
+type ServerOption func(*options)
+
+// TLSKeyFile defines the server's TLS certificate used to authenticate
+// against a client.
+func TLSKeyFile(certFile, keyFile string) ServerOption {
+	return func(o *options) {
+		c, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			panic("could not load TLS cert/key pair")
+		}
+		o.keyPairs = append(o.keyPairs, c)
+	}
 }
 
 // server is used to implement helloworld.GreeterServer.
 type ServerContext struct {
 	authentication.AuthState
-	cnt int64
+	opts options
+	rpc  *grpc.Server
 }
 
-// // SayHello implements helloworld.GreeterServer
-// func (s *ServerContext) SayHello(ctx context.Context, in *proto.HelloRequest) (*proto.HelloReply, error) {
-// 	// log.Println("Received request while server context:", s.ctx)
-// 	return &proto.HelloReply{Message: "Hello " + in.Name + " with birthday on " + fmt.Sprintf("%#v", in.Birth)}, nil
-// }
+func NewServer(opts ...ServerOption) ServerContext {
+	var conf options
+	for _, o := range opts {
+		o(&conf)
+	}
 
-func NewServer() ServerContext {
-	return ServerContext{authentication.NewAuthState(), 0}
+	return ServerContext{
+		AuthState: authentication.NewAuthState(),
+		opts:      conf,
+	}
 }
 
-func (sc *ServerContext) Geti() *authentication.AuthState {
-	log.Println("Geti called in ServerContext")
-	return &sc.AuthState
+func (s *ServerContext) GetAuthState() *authentication.AuthState {
+	log.Println("GetAuthState called in ServerContext")
+	return &s.AuthState
 }
 
-func Prepare(ctx Serverize) *grpc.Server {
-	// Prepare server instance
-	// srv := ctx.Geti()
-	peerCertMgr := ctx.GetPeerCerts()
+func (s *ServerContext) Prepare() (*grpc.Server, error) {
+	peerCertMgr := s.GetPeerCerts()
 
-	// Load server key pair
-	peerCert, err := tls.LoadX509KeyPair(*certFile, *keyFile)
-	if err != nil {
-		log.Fatalf("load peer cert/key error:%v", err)
-		return nil
+	// Check server key pair
+	if len(s.opts.keyPairs) == 0 {
+		return nil, fmt.Errorf("No TLS key pair loaded.")
 	}
 	// Load client certificate for end2end authentication
-	// clientCert, err := util.ReadCertFromPEM(*clientCertFile)
+	// clientCer.Errorf("No server TLS key pair loaded.") := util.ReadCertFromPEM(*clientCertFile)
 	// if err != nil {
 	// 	panic(err)
 	// }
@@ -78,9 +94,9 @@ func Prepare(ctx Serverize) *grpc.Server {
 		peerCertMgr.LoadFromPath("")
 	}()
 
-	// Setup HTTPS client
-	ta := credentials.NewTLS(&tls.Config{
-		Certificates: []tls.Certificate{peerCert},
+	// Setup TLS client authentication
+	tlsConfig := &tls.Config{
+		Certificates: s.opts.keyPairs,
 		ClientCAs:    peerCertMgr.ManagedCertPool,
 		// NoClientCert
 		// RequestClientCert
@@ -89,19 +105,34 @@ func Prepare(ctx Serverize) *grpc.Server {
 		// RequireAndVerifyClientCert
 		ClientAuth: tls.RequireAndVerifyClientCert,
 		MinVersion: tls.VersionTLS12,
-	})
-	// tlsConfig.BuildNameToCertificate()
-	// Interceptor for Client Auth
-	ic := grpc.UnaryServerInterceptor(authentication.Authi)
+	}
+	tlsConfig.BuildNameToCertificate()
+	ta := credentials.NewTLS(tlsConfig)
+	// Interceptor for Client Authentication
+	ic := grpc.UnaryServerInterceptor(authentication.AuthenticateClient)
 
-	// lis, err := net.Listen("tcp", ":50051")
-	// if err != nil {
-	// 	log.Fatalf("failed to listen: %v", err)
-	// }
-	s := grpc.NewServer(grpc.Creds(ta), grpc.UnaryInterceptor(ic))
-	// Register proto service
-	// // proto.RegisterGreeterServer(s, srv)
-	// s.Serve(lis)
+	s.rpc = grpc.NewServer(grpc.Creds(ta), grpc.UnaryInterceptor(ic))
 
-	return s
+	return s.rpc, nil
+}
+
+// Serve starts listening for incoming connections and serves the requests through
+// the RPC backend (gRPC).
+// TODO: restart RPC backend from time to time to remove revoked certificates from
+//		 certpool.
+// TODO: config listening address
+func (s *ServerContext) Serve() error {
+	lis, err := net.Listen("tcp", ":50051")
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+		return err
+	}
+
+	err = s.rpc.Serve(lis)
+	if err != nil {
+		log.Fatalf("rpc backend failed: %v", err)
+		return err
+	}
+
+	return nil
 }
