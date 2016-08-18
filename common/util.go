@@ -3,6 +3,7 @@ package common
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io/ioutil"
 )
@@ -15,15 +16,24 @@ func ReadCertFromPEM(filename string) (*x509.Certificate, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	c, _, err := ParseCertFromPEMBytes(clientCertStream)
+	return c, err
+}
+
+var ErrUnsupportedPEM = errors.New("Invalid certificate header")
+
+func ParseCertFromPEMBytes(pemBlock []byte) (c *x509.Certificate, rest []byte, err error) {
 	// Fetch first block from PEM file
 	var block *pem.Block
-	block, _ = pem.Decode(clientCertStream)
+	block, rest = pem.Decode(pemBlock)
 	if block == nil {
-		return nil, fmt.Errorf("Invalid PEM block")
+		return nil, nil, fmt.Errorf("Invalid PEM block")
 	}
 	if block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
-		return nil, fmt.Errorf("Invalid certificate header")
+		return nil, nil, ErrUnsupportedPEM
 	}
 
-	return x509.ParseCertificate(block.Bytes)
+	c, err = x509.ParseCertificate(block.Bytes)
+	return
 }

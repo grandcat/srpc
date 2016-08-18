@@ -11,13 +11,15 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	util "github.com/grandcat/flexsmc/common"
 )
 
 type PeerCertMgr struct {
 	// Map each peer's qualified name (=CN) to its certificates
 	peerCertsByCN   map[string][]*PeerCert
 	peerCertsByHash map[CertFingerprint]*PeerCert
-	sync.RWMutex
+	mu              sync.RWMutex
 
 	ManagedCertPool *x509.CertPool
 }
@@ -56,8 +58,8 @@ func NewPeerCertMgr() *PeerCertMgr {
 }
 
 func (cm *PeerCertMgr) IsPeerRegistered(cn string) bool {
-	cm.RLock()
-	defer cm.RUnlock()
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
 	_, exists := cm.peerCertsByCN[cn]
 	return exists
 }
@@ -71,8 +73,8 @@ func (cm *PeerCertMgr) AddCert(cert *x509.Certificate, role CertRole) (CertFinge
 	cn := cert.Subject.CommonName
 	fp := Sha256Fingerprint(cert)
 
-	cm.Lock()
-	defer cm.Unlock()
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
 
 	// Check if peer CN is not already in use. We enforce unique CNs for
 	// individual peers
@@ -105,8 +107,8 @@ func (cm *PeerCertMgr) AddCert(cert *x509.Certificate, role CertRole) (CertFinge
 func (cm *PeerCertMgr) UpdateCert(cert *x509.Certificate, role CertRole) {
 	fp := Sha256Fingerprint(cert)
 
-	cm.Lock()
-	defer cm.Unlock()
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
 
 	if c, ok := cm.peerCertsByHash[fp]; ok {
 		c.Role = role
@@ -116,8 +118,8 @@ func (cm *PeerCertMgr) UpdateCert(cert *x509.Certificate, role CertRole) {
 func (cm *PeerCertMgr) RevokeCert(cert *x509.Certificate) {
 	fp := Sha256Fingerprint(cert)
 
-	cm.Lock()
-	defer cm.Unlock()
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
 
 	if c, ok := cm.peerCertsByHash[fp]; ok {
 		c.Role = Revoked
@@ -134,8 +136,8 @@ func (cm *PeerCertMgr) RevokeCert(cert *x509.Certificate) {
 func (cm *PeerCertMgr) VerifyPeerIdentity(remote *x509.Certificate) (*PeerCert, error) {
 	fp := Sha256Fingerprint(remote)
 
-	cm.RLock()
-	defer cm.RUnlock()
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
 
 	if c, ok := cm.peerCertsByHash[fp]; ok {
 		// Check for same Peer ID
@@ -158,8 +160,8 @@ func (cm *PeerCertMgr) VerifyPeerIdentity(remote *x509.Certificate) (*PeerCert, 
 func (cm *PeerCertMgr) generateCertPool() {
 	pool := x509.NewCertPool()
 
-	cm.RLock()
-	defer cm.RUnlock()
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
 
 	for _, pcs := range cm.peerCertsByCN {
 		for _, pc := range pcs {
@@ -174,65 +176,60 @@ func (cm *PeerCertMgr) generateCertPool() {
 	cm.ManagedCertPool = pool
 }
 
-func (cm *PeerCertMgr) LoadFromPath(dirpath string) {
+func (cm *PeerCertMgr) LoadFromPath(dirpath string) error {
 	// Extract base path
 	dirpath = filepath.Dir(dirpath) + string(os.PathSeparator)
 	// Load meta data
 	// Based on that, we decide which certificates are valid to be kept in memory
 	js, err := ioutil.ReadFile(dirpath + "peer_certificates.meta.json")
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	var managedCerts map[CertFingerprint]*PeerCert
 	err = json.Unmarshal(js, &managedCerts)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	// Load all certificates from PEM file. Based on the meta information, we
 	// decide to keep it or reject it
 	pemCerts, err := ioutil.ReadFile(dirpath + "peer_certificates.pem")
 	if err != nil {
-		panic(err)
+		return err
 	}
 
-	// Code borrowed from stdlib `cert_pool.go`
 	for len(pemCerts) > 0 {
-		var block *pem.Block
-		block, pemCerts = pem.Decode(pemCerts)
-		if block == nil {
-			break
-		}
-		if block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
-			continue
-		}
-
-		c, err := x509.ParseCertificate(block.Bytes)
+		var c *x509.Certificate
+		c, pemCerts, err = util.ParseCertFromPEMBytes(pemCerts)
 		if err != nil {
-			continue
+			if err == util.ErrUnsupportedPEM {
+				// Skip unknown PEM encodings other than CERTIFICATE
+				continue
+			}
+			return fmt.Errorf("LoadFromPath: %v", err)
 		}
 
-		// Only add certificate if it is part of the managed ones
+		// Only add certificate if it is part of the directory (meta file)
 		if meta, exists := managedCerts[Sha256Fingerprint(c)]; exists {
 			cm.AddCert(c, meta.Role)
 		} else {
 			fmt.Errorf("Skipping certificate %s. Not part of meta file.\n",
 				Sha256Fingerprint(c))
 		}
-
 	}
 
+	return nil
 }
 
-func (cm *PeerCertMgr) StoreToPath(dirpath string) {
+func (cm *PeerCertMgr) StoreToPath(dirpath string) error {
 	// Extract base path
 	dirpath = filepath.Dir(dirpath) + string(os.PathSeparator)
 
 	// Write metadata for all managed peer certificates
 	js, err := json.Marshal(cm.peerCertsByHash)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("StoreToPath: %v", err)
 	}
 	ioutil.WriteFile(dirpath+"peer_certificates.meta.json", js, 0644)
 
@@ -240,7 +237,7 @@ func (cm *PeerCertMgr) StoreToPath(dirpath string) {
 	log.Println("Exporting all certificates from peer cert pool")
 	fo, err := os.Create(dirpath + "peer_certificates.pem")
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("StoreToPath: %v", err)
 	}
 	defer fo.Close()
 	// make a write buffer
@@ -250,8 +247,10 @@ func (cm *PeerCertMgr) StoreToPath(dirpath string) {
 		log.Println("Writing cert:", c.Certificate.Subject.CommonName)
 		b := &pem.Block{Type: "CERTIFICATE", Bytes: c.Certificate.Raw}
 		if err := pem.Encode(wr, b); err != nil {
-			fmt.Errorf("Encoding certificate failed:%v\n", err)
+			return fmt.Errorf("Encoding certificate:%v", err)
 		}
 	}
 	wr.Flush()
+
+	return nil
 }
