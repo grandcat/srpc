@@ -90,9 +90,9 @@ func (s *ServerContext) Prepare() (*grpc.Server, error) {
 		// log.Println(srv.certMgr.AddCert(clientCert2, authentication.Primary))
 		// Persist managed certificates to disk
 		// srv.certMgr.StoreToPath("")
-		if err := peerCertMgr.LoadFromPath(""); err != nil {
-			panic(err)
-		}
+		// if err := peerCertMgr.LoadFromPath(""); err != nil {
+		// 	panic(err)
+		// }
 	}()
 
 	// Setup TLS client authentication
@@ -104,7 +104,9 @@ func (s *ServerContext) Prepare() (*grpc.Server, error) {
 		// RequireAnyClientCert
 		// VerifyClientCertIfGiven
 		// RequireAndVerifyClientCert
-		ClientAuth: tls.RequireAndVerifyClientCert,
+		// Verification is in authentication.AuthenticateClient. This abstraction is
+		// necessary for pairing (temporarily adding new certs on the fly).
+		ClientAuth: tls.RequireAnyClientCert, //< verification in
 		MinVersion: tls.VersionTLS12,
 	}
 	tlsConfig.BuildNameToCertificate()

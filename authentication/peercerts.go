@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -78,13 +79,11 @@ func (cm *PeerCertMgr) AddCert(cert *x509.Certificate, role CertRole) (CertFinge
 
 	// Check if peer CN is not already in use. We enforce unique CNs for
 	// individual peers
-	// New: application has to verify a peer's registration before adding
-	// a new certificate
-	// if _, exists := cm.peerCertsByCN[cn]; exists {
-	// 	return "", fmt.Errorf("CertManager: peer with CN '%s' already registered", cn)
-	// }
 	if _, exists := cm.peerCertsByHash[fp]; exists {
 		return "", fmt.Errorf("CertManager: ignore duplicate cert")
+	}
+	if len(cm.peerCertsByCN[cn]) > 8 {
+		return "", fmt.Errorf("CertManager: too many certificates for this peer")
 	}
 
 	newCert := &PeerCert{
@@ -97,7 +96,9 @@ func (cm *PeerCertMgr) AddCert(cert *x509.Certificate, role CertRole) (CertFinge
 	cm.peerCertsByHash[fp] = newCert
 	log.Println("Cert fingerprint:", fp)
 
-	// XXX: temporarily add to CertPool; should require acceptance first
+	// Map cert to the reference cert pool.
+	// This is valid as every request needs to pass the interceptor verifying
+	// the validity of the certificate.
 	cm.ManagedCertPool.AddCert(cert)
 
 	// Unique fingerprint for reidentification
@@ -124,21 +125,34 @@ func (cm *PeerCertMgr) RevokeCert(cert *x509.Certificate) {
 	if c, ok := cm.peerCertsByHash[fp]; ok {
 		c.Role = Revoked
 
-		// Also invalidate attributes of this certificate so any new TLS
-		// connection will fail early
-		// Still, it is not necessary due to the gRPC interceptor hook.
-		c.Certificate.Raw = nil
-		c.Certificate.KeyUsage = 0
-		c.Certificate.ExtKeyUsage = []x509.ExtKeyUsage{}
+		// Propagate changes
+		cm.buildCertPool()
 	}
 }
 
 func (cm *PeerCertMgr) VerifyPeerIdentity(remote *x509.Certificate) (*PeerCert, error) {
-	fp := Sha256Fingerprint(remote)
-
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
+	// Primary check:
+	// Do same verification steps as in `processCertsFromClient()` (part of `handshake_server.go`)
+	// if ClientAuth was RequireAndVerifyClientCert.
+	// Like this, we are more flexible while TLS still verifies if the client is in possession of the
+	// private key of the certificate (signed digest of all preceding handshake-layer messages).
+	opts := x509.VerifyOptions{
+		Roots:         cm.ManagedCertPool,
+		Intermediates: x509.NewCertPool(),
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	chains, err := remote.Verify(opts)
+	if err != nil {
+		return nil, errors.New("peercerts: failed to verify client's certificate: " + err.Error())
+	}
+	log.Println("Verfied cert chains:", chains)
+
+	// Secondary check:
+	// Check role of deposited certificate for the requesting peer
+	fp := Sha256Fingerprint(remote)
 	if c, ok := cm.peerCertsByHash[fp]; ok {
 		// Check for same Peer ID
 		if c.Certificate.Subject.CommonName != remote.Subject.CommonName {
@@ -157,7 +171,7 @@ func (cm *PeerCertMgr) VerifyPeerIdentity(remote *x509.Certificate) (*PeerCert, 
 	return nil, fmt.Errorf("No matching certificate")
 }
 
-func (cm *PeerCertMgr) generateCertPool() {
+func (cm *PeerCertMgr) buildCertPool() {
 	pool := x509.NewCertPool()
 
 	cm.mu.RLock()

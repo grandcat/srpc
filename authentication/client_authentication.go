@@ -31,7 +31,6 @@ func (as *AuthState) GetPeerCerts() *PeerCertMgr {
 func AuthenticateClient(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
 	log.Println("Intercepted call. Func:", info.FullMethod)
 
-	// Check certificate sent by client
 	pr, ok := peer.FromContext(ctx)
 	if !ok {
 		return nil, fmt.Errorf("Failed to get peer info from ctx")
@@ -39,9 +38,25 @@ func AuthenticateClient(ctx context.Context, req interface{}, info *grpc.UnarySe
 	srvCtx := info.Server.(Authorize)
 	peerCertMgr := srvCtx.GetPeerCerts()
 
-	switch info := pr.AuthInfo.(type) {
+	switch auth := pr.AuthInfo.(type) {
 	case credentials.TLSInfo:
-		peerCert := info.State.PeerCertificates[0]
+		log.Println("TLSInfo:", auth.State)
+		peerCert := auth.State.PeerCertificates[0]
+
+		if info.FullMethod == "/helloworld.Pairing/Register" {
+			// For pairing, checks are less restrictive as it should be an unknown certificate.
+			// Still, we need to take care of the result by the higher-level handler before
+			// putting the certificate to the pool.
+			m, err := handler(ctx, req)
+			if err == nil {
+				if _, err := peerCertMgr.AddCert(peerCert, Inactive); err != nil {
+					log.Printf("clientauth: %v", err.Error())
+				}
+
+			}
+			return m, err
+
+		}
 		// Check for peer's identity being available and valid, otherwise abort
 		identity, err := peerCertMgr.VerifyPeerIdentity(peerCert)
 		if err == nil {
@@ -51,9 +66,9 @@ func AuthenticateClient(ctx context.Context, req interface{}, info *grpc.UnarySe
 		}
 
 	default:
-		return nil, fmt.Errorf("Unknown AuthInfo")
+		return nil, fmt.Errorf("Unknown authentication")
 	}
 
-	// If we reached that far, it should be a valid peer
+	// If we reached that far, it should be a valid peer.
 	return handler(ctx, req)
 }
