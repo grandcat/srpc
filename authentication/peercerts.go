@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	util "github.com/grandcat/flexsmc/common"
 )
@@ -47,6 +48,7 @@ const (
 type PeerCert struct {
 	Certificate *x509.Certificate `json:"-"`
 	Role        CertRole          `json:"certRole"`
+	Created     time.Time         `json:"created"`
 }
 
 // NewCertManager creates a new instance to manage our own and peers' certificates
@@ -69,7 +71,7 @@ func (cm *PeerCertMgr) IsPeerRegistered(cn string) bool {
 //
 // If a peer with the same CN exists, it is associated with this peer. The application
 // should check before whether a peer exists if this variant is not desired.
-func (cm *PeerCertMgr) AddCert(cert *x509.Certificate, role CertRole) (CertFingerprint, error) {
+func (cm *PeerCertMgr) AddCert(cert *x509.Certificate, role CertRole, created time.Time) (CertFingerprint, error) {
 	// Use cert's CommonName and fingerprint for identification
 	cn := cert.Subject.CommonName
 	fp := Sha256Fingerprint(cert)
@@ -89,6 +91,7 @@ func (cm *PeerCertMgr) AddCert(cert *x509.Certificate, role CertRole) (CertFinge
 	newCert := &PeerCert{
 		Certificate: cert,
 		Role:        role,
+		Created:     created,
 	}
 	// Map cert to array of certs associated with the same CN
 	cm.peerCertsByCN[cn] = append(cm.peerCertsByCN[cn], newCert)
@@ -190,6 +193,11 @@ func (cm *PeerCertMgr) buildCertPool() {
 	cm.ManagedCertPool = pool
 }
 
+// LoadFromPath imports certificates from `peer_certificates.pem` into the local
+// certificate pool. If a certificate in the pool is the same as one of the
+// imported ones, it is skipped.
+// Note: only certificates described by `peer_certificates.meta.json`, are
+//		 candidates for import.
 func (cm *PeerCertMgr) LoadFromPath(dirpath string) error {
 	// Extract base path
 	dirpath = filepath.Dir(dirpath) + string(os.PathSeparator)
@@ -226,7 +234,7 @@ func (cm *PeerCertMgr) LoadFromPath(dirpath string) error {
 
 		// Only add certificate if it is part of the directory (meta file)
 		if meta, exists := managedCerts[Sha256Fingerprint(c)]; exists {
-			cm.AddCert(c, meta.Role)
+			cm.AddCert(c, meta.Role, meta.Created)
 		} else {
 			fmt.Errorf("Skipping certificate %s. Not part of meta file.\n",
 				Sha256Fingerprint(c))
@@ -236,6 +244,8 @@ func (cm *PeerCertMgr) LoadFromPath(dirpath string) error {
 	return nil
 }
 
+// StoreToPath exports all managed certificates accompanied by a JSON meta file for
+// additional properties, such as its role or issue time.
 func (cm *PeerCertMgr) StoreToPath(dirpath string) error {
 	// Extract base path
 	dirpath = filepath.Dir(dirpath) + string(os.PathSeparator)
@@ -248,7 +258,7 @@ func (cm *PeerCertMgr) StoreToPath(dirpath string) error {
 	ioutil.WriteFile(dirpath+"peer_certificates.meta.json", js, 0644)
 
 	// Write all certificates to a common PEM encoded file
-	log.Println("Exporting all certificates from peer cert pool")
+	log.Printf("Exporting %d certificates from peer cert pool", len(cm.peerCertsByHash))
 	fo, err := os.Create(dirpath + "peer_certificates.pem")
 	if err != nil {
 		return fmt.Errorf("StoreToPath: %v", err)

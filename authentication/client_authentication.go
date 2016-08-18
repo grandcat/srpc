@@ -3,6 +3,7 @@ package authentication
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -49,7 +50,7 @@ func AuthenticateClient(ctx context.Context, req interface{}, info *grpc.UnarySe
 			// putting the certificate to the pool.
 			m, err := handler(ctx, req)
 			if err == nil {
-				if _, err := peerCertMgr.AddCert(peerCert, Inactive); err != nil {
+				if _, err := peerCertMgr.AddCert(peerCert, Inactive, time.Now()); err != nil {
 					log.Printf("clientauth: %v", err.Error())
 				}
 

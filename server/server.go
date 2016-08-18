@@ -89,10 +89,10 @@ func (s *ServerContext) Prepare() (*grpc.Server, error) {
 		// log.Println(srv.certMgr.AddCert(clientCert, authentication.Primary))
 		// log.Println(srv.certMgr.AddCert(clientCert2, authentication.Primary))
 		// Persist managed certificates to disk
-		// srv.certMgr.StoreToPath("")
-		// if err := peerCertMgr.LoadFromPath(""); err != nil {
-		// 	panic(err)
-		// }
+		if err := peerCertMgr.LoadFromPath(""); err != nil {
+			panic(err)
+		}
+		peerCertMgr.StoreToPath("")
 	}()
 
 	// Setup TLS client authentication
