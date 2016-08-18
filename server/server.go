@@ -26,12 +26,12 @@ type options struct {
 	keyPairs []tls.Certificate
 }
 
-// ServerOption fills the option struct to configure TLS keys etc.
-type ServerOption func(*options)
+// Option fills the option struct to configure TLS keys etc.
+type Option func(*options)
 
 // TLSKeyFile defines the server's TLS certificate used to authenticate
 // against a client.
-func TLSKeyFile(certFile, keyFile string) ServerOption {
+func TLSKeyFile(certFile, keyFile string) Option {
 	return func(o *options) {
 		c, err := tls.LoadX509KeyPair(certFile, keyFile)
 		if err != nil {
@@ -41,14 +41,13 @@ func TLSKeyFile(certFile, keyFile string) ServerOption {
 	}
 }
 
-// server is used to implement helloworld.GreeterServer.
 type ServerContext struct {
 	authentication.AuthState
-	opts options
 	rpc  *grpc.Server
+	opts options
 }
 
-func NewServer(opts ...ServerOption) ServerContext {
+func NewServer(opts ...Option) ServerContext {
 	var conf options
 	for _, o := range opts {
 		o(&conf)
@@ -135,4 +134,8 @@ func (s *ServerContext) Serve() error {
 	}
 
 	return nil
+}
+
+func (s *ServerContext) TearDown() {
+	s.rpc.Stop()
 }

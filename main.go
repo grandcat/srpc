@@ -64,6 +64,7 @@ func testClient() {
 
 	tlsKeyPrim := client.TLSKeyFile(*clientCertFile, *clientKeyFile)
 	cl := client.NewClient(tlsKeyPrim)
+	defer cl.TearDown()
 
 	conn, err := cl.Dial(peerID)
 	if err != nil {
