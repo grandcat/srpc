@@ -105,8 +105,8 @@ func (s *ServerContext) Prepare() (*grpc.Server, error) {
 		// VerifyClientCertIfGiven
 		// RequireAndVerifyClientCert
 		// Verification is in authentication.AuthenticateClient. This abstraction is
-		// necessary for pairing (temporarily adding new certs on the fly).
-		ClientAuth: tls.RequireAnyClientCert, //< verification in
+		// necessary for pairing: adding new certificates on the fly
+		ClientAuth: tls.RequireAnyClientCert,
 		MinVersion: tls.VersionTLS12,
 	}
 	tlsConfig.BuildNameToCertificate()
@@ -121,8 +121,6 @@ func (s *ServerContext) Prepare() (*grpc.Server, error) {
 
 // Serve starts listening for incoming connections and serves the requests through
 // the RPC backend (gRPC).
-// TODO: restart RPC backend from time to time to remove revoked certificates from
-//		 certpool.
 // TODO: config listening address
 func (s *ServerContext) Serve() error {
 	lis, err := net.Listen("tcp", ":50051")

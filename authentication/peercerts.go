@@ -163,15 +163,14 @@ func (cm *PeerCertMgr) VerifyPeerIdentity(remote *x509.Certificate) (*PeerCert, 
 		}
 		// Check whether it is an active certificate
 		if c.Role <= Inactive {
-			return nil, fmt.Errorf("Certificate not active")
+			return nil, fmt.Errorf("certificate not active")
 		}
-		// Further checks should be already done during the TLS handshake.
-		// So we can assume that TLS server checks all other fields, e.g. time
-		// validity bounds
+		// Further checks should be already done during the TLS handshake, e.g.
+		// signing and verifying all messages previously sent.
 		return c, nil
 	}
 
-	return nil, fmt.Errorf("No matching certificate")
+	return nil, fmt.Errorf("no matching certificate")
 }
 
 func (cm *PeerCertMgr) buildCertPool() {
@@ -214,8 +213,8 @@ func (cm *PeerCertMgr) LoadFromPath(dirpath string) error {
 		return err
 	}
 
-	// Load all certificates from PEM file. Based on the meta information, we
-	// decide to keep it or reject it
+	// Load all certificates from PEM file. With available meta information,
+	// we decide to keep it
 	pemCerts, err := ioutil.ReadFile(dirpath + "peer_certificates.pem")
 	if err != nil {
 		return err
@@ -236,7 +235,7 @@ func (cm *PeerCertMgr) LoadFromPath(dirpath string) error {
 		if meta, exists := managedCerts[Sha256Fingerprint(c)]; exists {
 			cm.AddCert(c, meta.Role, meta.Created)
 		} else {
-			fmt.Errorf("Skipping certificate %s. Not part of meta file.\n",
+			fmt.Errorf("skipping certificate %s as not part of meta file.\n",
 				Sha256Fingerprint(c))
 		}
 	}
@@ -251,7 +250,9 @@ func (cm *PeerCertMgr) StoreToPath(dirpath string) error {
 	dirpath = filepath.Dir(dirpath) + string(os.PathSeparator)
 
 	// Write metadata for all managed peer certificates
+	cm.mu.RLock()
 	js, err := json.Marshal(cm.peerCertsByHash)
+	cm.mu.RUnlock()
 	if err != nil {
 		return fmt.Errorf("StoreToPath: %v", err)
 	}
@@ -267,11 +268,13 @@ func (cm *PeerCertMgr) StoreToPath(dirpath string) error {
 	// make a write buffer
 	wr := bufio.NewWriter(fo)
 
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
 	for _, c := range cm.peerCertsByHash {
 		log.Println("Writing cert:", c.Certificate.Subject.CommonName)
 		b := &pem.Block{Type: "CERTIFICATE", Bytes: c.Certificate.Raw}
 		if err := pem.Encode(wr, b); err != nil {
-			return fmt.Errorf("Encoding certificate:%v", err)
+			return fmt.Errorf("encoding certificate:%v", err)
 		}
 	}
 	wr.Flush()
