@@ -7,6 +7,7 @@ import (
 
 	"github.com/grandcat/flexsmc/client"
 	proto "github.com/grandcat/flexsmc/helloworld"
+	pbPairing "github.com/grandcat/flexsmc/helloworld/pairing"
 	"github.com/grandcat/flexsmc/server"
 	"golang.org/x/net/context"
 )
@@ -31,13 +32,13 @@ func (s *Logic) SayHello(ctx context.Context, in *proto.HelloRequest) (*proto.He
 }
 
 // Register implements helloworld.GreeterServer
-func (s *Logic) Register(ctx context.Context, in *proto.RegisterRequest) (*proto.StatusReply, error) {
+func (s *Logic) Register(ctx context.Context, in *pbPairing.RegisterRequest) (*pbPairing.StatusReply, error) {
 	// Dummy
 	// PeerCertMgr temporarily stores the client certificate provided during the TLS session.
 	// If Register returns an error, the certificate provided by the client, is not added to the pool at all:
 	// E.g. errors.New("Not responsible for this peer")
-	return &proto.StatusReply{
-		Status: 42,
+	return &pbPairing.StatusReply{
+		Status: pbPairing.Status_WAITING_APPROVAL,
 	}, nil
 }
 
@@ -62,7 +63,7 @@ func main() {
 			panic(err)
 		}
 		proto.RegisterGreeterServer(g, allServer)
-		proto.RegisterPairingServer(g, allServer)
+		pbPairing.RegisterPairingServer(g, allServer)
 		allServer.Serve()
 		log.Println("Serve() stopped")
 
@@ -84,8 +85,8 @@ func testClient() {
 	}
 
 	// Do a registration
-	conR := proto.NewPairingClient(conn)
-	resp, err := conR.Register(context.Background(), &proto.RegisterRequest{Name: "It's me"})
+	conR := pbPairing.NewPairingClient(conn)
+	resp, err := conR.Register(context.Background(), &pbPairing.RegisterRequest{Name: "It's me"})
 	if err != nil {
 		log.Printf("could not register: %v", err)
 	} else {

@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.github.flexsmc.pairing";
+option java_outer_classname = "PbPairing";
+
+package pairing;
+
+// Interface exported by the server.
+service Pairing {
+  // Register a new client certificate
+  rpc Register (RegisterRequest) returns (StatusReply) {}
+}
+
+message RegisterRequest {
+  string name = 1;
+  string location = 2;
+}
+
+enum Status {
+    REGISTERED = 0;
+    WAITING_APPROVAL = 1;
+    REJECTED = 2;
+}
+
+message StatusReply {
+  Status status = 1;
+}

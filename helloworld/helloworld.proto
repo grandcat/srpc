@@ -14,19 +14,6 @@ service Greeter {
   rpc SayHello (HelloRequest) returns (HelloReply) {}
 }
 
-service Pairing {
-  // Registers a new client certificate
-  rpc Register (RegisterRequest) returns (StatusReply) {}
-}
-
-message RegisterRequest {
-  string name = 1;
-}
-
-message StatusReply {
-  uint32 status = 1;
-}
-
 // The request message containing the user's name.
 message HelloRequest {
   string name = 1;

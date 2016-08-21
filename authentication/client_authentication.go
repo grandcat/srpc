@@ -45,7 +45,7 @@ func AuthenticateClient(ctx context.Context, req interface{}, info *grpc.UnarySe
 		peerCert := auth.State.PeerCertificates[0]
 
 		// TODO: replace hardcoded mechanism
-		if info.FullMethod == "/helloworld.Pairing/Register" {
+		if info.FullMethod == "/pairing.Pairing/Register" {
 			// For pairing, checks are less restrictive as it should be an unknown certificate.
 			// Still, we need to take care of the result by the higher-level handler before
 			// putting the certificate to the pool.
