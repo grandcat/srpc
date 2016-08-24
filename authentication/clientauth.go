@@ -12,25 +12,18 @@ import (
 
 type Authorize interface {
 	RegisterServer(*grpc.Server)
-	Pairer() Pairing
 	GetPeerCerts() *PeerCertMgr
 }
 
 type ClientAuth struct {
 	PeerCerts *PeerCertMgr
-	pairing   Pairing
 }
 
 func NewClientAuth() ClientAuth {
 	m := NewPeerCertMgr()
 	return ClientAuth{
 		PeerCerts: m,
-		pairing:   NewApprovalPairing(m),
 	}
-}
-
-func (ca *ClientAuth) Pairer() Pairing {
-	return ca.pairing
 }
 
 func (ca *ClientAuth) GetPeerCerts() *PeerCertMgr {
@@ -38,7 +31,7 @@ func (ca *ClientAuth) GetPeerCerts() *PeerCertMgr {
 }
 
 func (ca *ClientAuth) RegisterServer(g *grpc.Server) {
-	ca.pairing.RegisterService(g)
+	// Nothing to do
 }
 
 // Auth contains the information of the succeeded (or failed) authentication for an RPC.

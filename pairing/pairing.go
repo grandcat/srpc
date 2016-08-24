@@ -1,4 +1,4 @@
-package authentication
+package pairing
 
 import (
 	"fmt"
@@ -9,14 +9,15 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 
-	proto "github.com/grandcat/flexsmc/authentication/proto"
+	"github.com/grandcat/srpc/authentication"
+	proto "github.com/grandcat/srpc/pairing/proto"
 	"golang.org/x/net/context"
 )
 
 type Pairing interface {
 	// MethodNames() string
 	// Server-side RPC
-	RegisterService(g *grpc.Server)
+	RegisterServer(g *grpc.Server)
 	Register(ctx context.Context, in *proto.RegisterRequest) (*proto.StatusReply, error)
 	// Client-side RPC
 	// Register(ctx context.Context, req interface{}) (interface{}, error)
@@ -26,16 +27,16 @@ type PrWatcher interface {
 }
 
 type ApprovalPairing struct {
-	certMgr *PeerCertMgr
+	certMgr *authentication.PeerCertMgr
 }
 
-func NewApprovalPairing(p *PeerCertMgr) Pairing {
+func NewApprovalPairing(p *authentication.PeerCertMgr) Pairing {
 	return &ApprovalPairing{
 		certMgr: p,
 	}
 }
 
-func (a *ApprovalPairing) RegisterService(g *grpc.Server) {
+func (a *ApprovalPairing) RegisterServer(g *grpc.Server) {
 	proto.RegisterPairingServer(g, a)
 	log.Println("Register pairing module for gRPC")
 }
@@ -58,7 +59,7 @@ func (a *ApprovalPairing) Register(ctx context.Context, in *proto.RegisterReques
 		log.Println("TLSInfo:", auth.State)
 		peerCert := auth.State.PeerCertificates[0]
 		// Register peer certificate from TLS session as temporary candidate
-		if _, err := a.certMgr.AddCert(peerCert, Inactive, time.Now()); err != nil {
+		if _, err := a.certMgr.AddCert(peerCert, authentication.Inactive, time.Now()); err != nil {
 			log.Printf("Error during Pairing Register: %v \n", err)
 
 			return nil, err

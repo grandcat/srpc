@@ -8,7 +8,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/grandcat/flexsmc/authentication"
+	"github.com/grandcat/srpc/authentication"
+	"github.com/grandcat/srpc/pairing"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -43,6 +44,8 @@ func TLSKeyFile(certFile, keyFile string) Option {
 
 type ServerContext struct {
 	authentication.ClientAuth
+	Pairing pairing.Pairing
+	// gRPC structs and options
 	rpc  *grpc.Server
 	opts options
 }
@@ -53,8 +56,10 @@ func NewServer(opts ...Option) ServerContext {
 		o(&conf)
 	}
 
+	cauth := authentication.NewClientAuth()
 	return ServerContext{
-		ClientAuth: authentication.NewClientAuth(),
+		ClientAuth: cauth,
+		Pairing:    pairing.NewApprovalPairing(cauth.PeerCerts),
 		opts:       conf,
 	}
 }
@@ -118,7 +123,8 @@ func (s *ServerContext) Prepare() (*grpc.Server, error) {
 
 	// Pass server to all modules handling requests by their own
 	// TODO: more abstraction
-	s.ClientAuth.RegisterServer(s.rpc)
+	s.ClientAuth.RegisterServer(s.rpc) //< not used
+	s.Pairing.RegisterServer(s.rpc)
 
 	return s.rpc, nil
 }

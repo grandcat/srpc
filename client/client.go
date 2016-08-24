@@ -8,8 +8,9 @@ import (
 	"net"
 	"time"
 
-	"github.com/grandcat/flexsmc/authentication"
-	"github.com/grandcat/flexsmc/registry"
+	"github.com/grandcat/srpc/authentication"
+	"github.com/grandcat/srpc/pairing"
+	"github.com/grandcat/srpc/registry"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -36,7 +37,7 @@ func TLSKeyFile(certFile, keyFile string) Option {
 
 type Client struct {
 	authentication.ClientAuth
-	pair authentication.Pairing
+	pair pairing.Pairing
 	// gRPC structs
 	rpcConn     *grpc.ClientConn
 	rpcBalancer grpc.Balancer
@@ -83,14 +84,28 @@ func (c *Client) StartPairing(peerID string) (*grpc.ClientConn, error) {
 
 	// Export TLS connection state and received server certificate during TLS handshake
 	var tlsConnState tls.ConnectionState
+	cs := make(chan tls.ConnectionState, 1)
 	tlsDialer := func(addr string, timeout time.Duration) (net.Conn, error) {
 		conn, err := tls.DialWithDialer(&net.Dialer{Timeout: timeout}, "tcp", addr, tc)
 		if err == nil {
-			tlsConnState = conn.ConnectionState()
-			log.Println("TLS Info: ", tlsConnState.PeerCertificates[0])
+			tlsConnState = conn.ConnectionState() // TODO: pass as channel
+			cs <- tlsConnState
+			// log.Println("TLS Info: ", tlsConnState.PeerCertificates[0])
+			// c.ClientAuth.PeerCerts.AddCert(tlsConnState.PeerCertificates[0], authentication.Primary, time.Now())
+			// c.ClientAuth.PeerCerts.StoreToPath("client/")
 		}
 		return conn, err
 	}
+
+	go func(c <-chan tls.ConnectionState) {
+		select {
+		case tlsState := <-c:
+			log.Println("Received TLS Info: ", tlsState.PeerCertificates[0])
+
+		case <-time.After(3 * time.Second):
+			log.Fatal("Did not receive certificate fast enough.")
+		}
+	}(cs)
 
 	// Set up a TLS (but insecure) connection to the server.
 	// The identity of the server is not clear yet. To initiate a bi-directional certificate

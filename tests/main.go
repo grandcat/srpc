@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/grandcat/flexsmc/authentication"
-	pbPairing "github.com/grandcat/flexsmc/authentication/proto"
-	"github.com/grandcat/flexsmc/client"
-	proto "github.com/grandcat/flexsmc/helloworld"
-	"github.com/grandcat/flexsmc/server"
+	"github.com/grandcat/srpc/authentication"
+	"github.com/grandcat/srpc/client"
+	proto "github.com/grandcat/srpc/helloworld"
+	pbPairing "github.com/grandcat/srpc/pairing/proto"
+	"github.com/grandcat/srpc/server"
 	"golang.org/x/net/context"
 )
 

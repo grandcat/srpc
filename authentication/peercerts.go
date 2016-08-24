@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	util "github.com/grandcat/flexsmc/common"
+	util "github.com/grandcat/srpc/common"
 )
 
 // CertRole defines the scope a certificate is valid for

@@ -6,8 +6,8 @@ package client
 // 	"log"
 // 	"os"
 
-// 	"github.com/grandcat/flexsmc/authentication"
-// 	"github.com/grandcat/flexsmc/registry"
+// 	"github.com/grandcat/srpc/authentication"
+// 	"github.com/grandcat/srpc/registry"
 // 	util "github.com/grandcat/grpctls/common"
 // 	proto "github.com/grandcat/grpctls/helloworld"
 // 	"golang.org/x/net/context"

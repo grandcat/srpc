@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 option java_multiple_files = true;
-option java_package = "com.github.flexsmc.pairing";
+option java_package = "com.github.srpc.pairing";
 option java_outer_classname = "PbPairing";
 
 package auth;
