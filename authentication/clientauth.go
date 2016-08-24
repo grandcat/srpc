@@ -16,29 +16,29 @@ type Authorize interface {
 	GetPeerCerts() *PeerCertMgr
 }
 
-type AuthState struct {
+type ClientAuth struct {
 	PeerCerts *PeerCertMgr
 	pairing   Pairing
 }
 
-func NewAuthState() AuthState {
+func NewClientAuth() ClientAuth {
 	m := NewPeerCertMgr()
-	return AuthState{
+	return ClientAuth{
 		PeerCerts: m,
 		pairing:   NewApprovalPairing(m),
 	}
 }
 
-func (as *AuthState) Pairer() Pairing {
-	return as.pairing
+func (ca *ClientAuth) Pairer() Pairing {
+	return ca.pairing
 }
 
-func (as *AuthState) GetPeerCerts() *PeerCertMgr {
-	return as.PeerCerts
+func (ca *ClientAuth) GetPeerCerts() *PeerCertMgr {
+	return ca.PeerCerts
 }
 
-func (as *AuthState) RegisterServer(g *grpc.Server) {
-	as.pairing.RegisterService(g)
+func (ca *ClientAuth) RegisterServer(g *grpc.Server) {
+	ca.pairing.RegisterService(g)
 }
 
 // Auth contains the information of the succeeded (or failed) authentication for an RPC.

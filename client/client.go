@@ -35,7 +35,7 @@ func TLSKeyFile(certFile, keyFile string) Option {
 }
 
 type Client struct {
-	authentication.AuthState
+	authentication.ClientAuth
 	pair authentication.Pairing
 	// gRPC structs
 	rpcConn     *grpc.ClientConn
@@ -50,8 +50,8 @@ func NewClient(opts ...Option) Client {
 	}
 
 	return Client{
-		opts:      conf,
-		AuthState: authentication.NewAuthState(),
+		opts:       conf,
+		ClientAuth: authentication.NewClientAuth(),
 	}
 }
 

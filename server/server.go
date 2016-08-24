@@ -19,7 +19,7 @@ var (
 
 type Serverize interface {
 	authentication.Authorize
-	GetAuthState() *authentication.AuthState
+	GetAuthState() *authentication.ClientAuth
 }
 
 type options struct {
@@ -42,7 +42,7 @@ func TLSKeyFile(certFile, keyFile string) Option {
 }
 
 type ServerContext struct {
-	authentication.AuthState
+	authentication.ClientAuth
 	rpc  *grpc.Server
 	opts options
 }
@@ -54,14 +54,14 @@ func NewServer(opts ...Option) ServerContext {
 	}
 
 	return ServerContext{
-		AuthState: authentication.NewAuthState(),
-		opts:      conf,
+		ClientAuth: authentication.NewClientAuth(),
+		opts:       conf,
 	}
 }
 
-func (s *ServerContext) GetAuthState() *authentication.AuthState {
+func (s *ServerContext) GetAuthState() *authentication.ClientAuth {
 	log.Println("GetAuthState called in ServerContext")
-	return &s.AuthState
+	return &s.ClientAuth
 }
 
 func (s *ServerContext) Prepare() (*grpc.Server, error) {
@@ -118,7 +118,7 @@ func (s *ServerContext) Prepare() (*grpc.Server, error) {
 
 	// Pass server to all modules handling requests by their own
 	// TODO: more abstraction
-	s.AuthState.RegisterServer(s.rpc)
+	s.ClientAuth.RegisterServer(s.rpc)
 
 	return s.rpc, nil
 }
