@@ -17,15 +17,6 @@ import (
 	util "github.com/grandcat/flexsmc/common"
 )
 
-type PeerCertMgr struct {
-	// Map each peer's qualified name (=CN) to its certificates
-	peerCertsByCN   map[string][]*PeerCert
-	peerCertsByHash map[CertFingerprint]*PeerCert
-	mu              sync.RWMutex
-
-	ManagedCertPool *x509.CertPool
-}
-
 // CertRole defines the scope a certificate is valid for
 type CertRole uint8
 
@@ -60,11 +51,30 @@ func NewPeerCertMgr() *PeerCertMgr {
 	}
 }
 
-func (cm *PeerCertMgr) IsPeerRegistered(cn string) bool {
+type PeerCertMgr struct {
+	// Map each peer's qualified name (=CN) to its certificates
+	peerCertsByCN   map[string][]*PeerCert
+	peerCertsByHash map[CertFingerprint]*PeerCert
+	mu              sync.RWMutex
+
+	ManagedCertPool *x509.CertPool
+}
+
+func (cm *PeerCertMgr) ActivePeerCertificates(cn string) int {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
-	_, exists := cm.peerCertsByCN[cn]
-	return exists
+	p, ok := cm.peerCertsByCN[cn]
+	if ok {
+		activeCerts := 0
+		for _, c := range p {
+			if c.Role >= Primary {
+				activeCerts++
+			}
+		}
+		return activeCerts
+	}
+
+	return 0
 }
 
 // AddCert adds a new certificate and associates it with the peer's CN.
@@ -157,7 +167,7 @@ func (cm *PeerCertMgr) VerifyPeerIdentity(remote *x509.Certificate) (*PeerCert, 
 	// Check role of deposited certificate for the requesting peer
 	fp := Sha256Fingerprint(remote)
 	if c, ok := cm.peerCertsByHash[fp]; ok {
-		// Check for same Peer ID
+		// Check for same PeerID
 		if c.Certificate.Subject.CommonName != remote.Subject.CommonName {
 			return nil, fmt.Errorf("CN not matching")
 		}

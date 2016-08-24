@@ -2,8 +2,11 @@ package client
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log"
+	"net"
+	"time"
 
 	"github.com/grandcat/flexsmc/authentication"
 	"github.com/grandcat/flexsmc/registry"
@@ -33,6 +36,8 @@ func TLSKeyFile(certFile, keyFile string) Option {
 
 type Client struct {
 	authentication.AuthState
+	pair authentication.Pairing
+	// gRPC structs
 	rpcConn     *grpc.ClientConn
 	rpcBalancer grpc.Balancer
 	opts        options
@@ -59,11 +64,59 @@ func (c *Client) prepare() {
 	c.rpcBalancer = grpc.RoundRobin(new(registry.StaticAddrMap))
 }
 
-func (c *Client) Dial(peerID string) (*grpc.ClientConn, error) {
+func (c *Client) StartPairing(peerID string) (*grpc.ClientConn, error) {
 	if len(c.opts.keyPairs) == 0 {
-		return nil, fmt.Errorf("No TLS key pair loaded.")
+		return nil, fmt.Errorf("Load TLS key pair first.")
+	}
+	if c.rpcBalancer == nil {
+		c.prepare()
 	}
 
+	tc := &tls.Config{
+		Certificates: c.opts.keyPairs,
+		RootCAs:      x509.NewCertPool(),
+		// Pass CN as IP SANs do not work in a dynamic environment
+		ServerName: peerID,
+		// Skip verification as we do not know server's certificate yet
+		InsecureSkipVerify: true,
+	}
+
+	// Export TLS connection state and received server certificate during TLS handshake
+	var tlsConnState tls.ConnectionState
+	tlsDialer := func(addr string, timeout time.Duration) (net.Conn, error) {
+		conn, err := tls.DialWithDialer(&net.Dialer{Timeout: timeout}, "tcp", addr, tc)
+		if err == nil {
+			tlsConnState = conn.ConnectionState()
+			log.Println("TLS Info: ", tlsConnState.PeerCertificates[0])
+		}
+		return conn, err
+	}
+
+	// Set up a TLS (but insecure) connection to the server.
+	// The identity of the server is not clear yet. To initiate a bi-directional certificate
+	// exchange, we simply use the mechanism TLS offers with client-side authentication
+	// enabled. As gRPC does not offer any possibility to gather the connection state
+	// from the current connection (in contrast to the server-side implementation), we
+	// bypass its transport security and wrap it in a TLS session through a custom dialer.
+	// Note that this approach might be less efficient than gRPC's Http2 TLS integration.
+	// Though, if not heavily used, e.g. for pairing, it is fine.
+	//
+	// The identity of the counterpart must be verified out-of-band due to risk of a MitM attack.
+	conn, err := grpc.Dial(peerID, grpc.WithBalancer(c.rpcBalancer), grpc.WithInsecure(), grpc.WithDialer(tlsDialer))
+	if err != nil {
+		return nil, fmt.Errorf("could not connect: %v", err)
+	}
+
+	// TODO: invoke pairing module here!
+
+	// Return Pairing module or channel with progress? So user can call custom methods?
+	return conn, nil
+}
+
+func (c *Client) Dial(peerID string) (*grpc.ClientConn, error) {
+	if len(c.opts.keyPairs) == 0 {
+		return nil, fmt.Errorf("Load TLS key pair first.")
+	}
 	if c.rpcBalancer == nil {
 		c.prepare()
 	}

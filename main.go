@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/grandcat/flexsmc/authentication"
+	pbPairing "github.com/grandcat/flexsmc/authentication/proto"
 	"github.com/grandcat/flexsmc/client"
 	proto "github.com/grandcat/flexsmc/helloworld"
-	pbPairing "github.com/grandcat/flexsmc/helloworld/pairing"
 	"github.com/grandcat/flexsmc/server"
 	"golang.org/x/net/context"
 )
@@ -20,6 +21,7 @@ var (
 	clientKeyFile  = flag.String("client_key_file", "testdata/key_client3.pem", "Client TLS key file")
 )
 
+// Gluecode logic
 type Logic struct {
 	server.ServerContext
 	// Good place for persisting own data
@@ -28,7 +30,12 @@ type Logic struct {
 // SayHello implements helloworld.GreeterServer
 func (s *Logic) SayHello(ctx context.Context, in *proto.HelloRequest) (*proto.HelloReply, error) {
 	// log.Println("Received request while server context:", s.ctx)
-	return &proto.HelloReply{Message: "Hello " + in.Name + " with birthday on " + fmt.Sprintf("%#v", in.Birth)}, nil
+	auth, ok := authentication.FromAuthContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("Failed to get authentication info from ctx")
+	}
+
+	return &proto.HelloReply{Message: fmt.Sprintf("Hello %#v (%s) with birthday on %#v", auth.PeerID, in.Name, in.Birth)}, nil
 }
 
 // Register implements helloworld.GreeterServer
@@ -63,7 +70,7 @@ func main() {
 			panic(err)
 		}
 		proto.RegisterGreeterServer(g, allServer)
-		pbPairing.RegisterPairingServer(g, allServer)
+		// pbPairing.RegisterPairingServer(g, allServer)
 		allServer.Serve()
 		log.Println("Serve() stopped")
 
@@ -79,19 +86,28 @@ func testClient() {
 	cl := client.NewClient(tlsKeyPrim)
 	defer cl.TearDown()
 
+	// Pairing
+	connP, err := cl.StartPairing(peerID)
+	if err != nil {
+		panic(err)
+	}
+	conR := pbPairing.NewPairingClient(connP)
+	resp, err := conR.Register(context.Background(), &pbPairing.RegisterRequest{Name: "It's me"})
+	fmt.Println("Pairing Resp:", resp, " ERR:", err)
+
 	conn, err := cl.Dial(peerID)
 	if err != nil {
 		panic(err)
 	}
 
 	// Do a registration
-	conR := pbPairing.NewPairingClient(conn)
-	resp, err := conR.Register(context.Background(), &pbPairing.RegisterRequest{Name: "It's me"})
-	if err != nil {
-		log.Printf("could not register: %v", err)
-	} else {
-		log.Printf("[%d] Register Status: %d", -1, resp.Status)
-	}
+	// conR := pbPairing.NewPairingClient(conn)
+	// resp, err := conR.Register(context.Background(), &pbPairing.RegisterRequest{Name: "It's me"})
+	// if err != nil {
+	// 	log.Printf("could not register: %v", err)
+	// } else {
+	// 	log.Printf("[%d] Register Status: %d", -1, resp.Status)
+	// }
 
 	// Regular RPC calls
 	conT := proto.NewGreeterClient(conn)

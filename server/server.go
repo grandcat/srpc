@@ -116,6 +116,10 @@ func (s *ServerContext) Prepare() (*grpc.Server, error) {
 
 	s.rpc = grpc.NewServer(grpc.Creds(ta), grpc.UnaryInterceptor(ic))
 
+	// Pass server to all modules handling requests by their own
+	// TODO: more abstraction
+	s.AuthState.RegisterServer(s.rpc)
+
 	return s.rpc, nil
 }
 
