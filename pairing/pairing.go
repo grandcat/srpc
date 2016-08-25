@@ -1,6 +1,7 @@
 package pairing
 
 import (
+	"crypto/x509"
 	"fmt"
 	"log"
 	"time"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/grandcat/srpc"
 	"github.com/grandcat/srpc/authentication"
+	"github.com/grandcat/srpc/client"
 	proto "github.com/grandcat/srpc/pairing/proto"
 	"golang.org/x/net/context"
 )
@@ -20,19 +22,31 @@ type Pairing interface {
 	// Server-side RPC
 	Register(ctx context.Context, in *proto.RegisterRequest) (*proto.StatusReply, error)
 	// Client-side RPC
-	// Register(ctx context.Context, req interface{}) (interface{}, error)
+	StartPairing(ctx context.Context, peerID string) (PeerIdentity, error)
 }
 
-type PrWatcher interface {
+type PeerIdentity interface {
+	Fingerprint() authentication.CertFingerprint
+	Accept()
+	Reject()
 }
 
 type ApprovalPairing struct {
 	certMgr *authentication.PeerCertMgr
+	// Client-side
+	cc *client.ClientConnPlus
 }
 
-func NewApprovalPairing(p *authentication.PeerCertMgr) Pairing {
+func NewServerApproval(p *authentication.PeerCertMgr) Pairing {
 	return &ApprovalPairing{
 		certMgr: p,
+	}
+}
+
+func NewClientApproval(p *authentication.PeerCertMgr, cc *client.ClientConnPlus) Pairing {
+	return &ApprovalPairing{
+		certMgr: p,
+		cc:      cc,
 	}
 }
 
@@ -49,6 +63,8 @@ func (a *ApprovalPairing) InterceptMethods() []srpc.UnaryInterceptInfo {
 		},
 	}
 }
+
+// Server API for Pairing service
 
 // Register defines the function handler for the server-side RPC service definition.
 func (a *ApprovalPairing) Register(ctx context.Context, in *proto.RegisterRequest) (*proto.StatusReply, error) {
@@ -84,4 +100,53 @@ func (a *ApprovalPairing) Register(ctx context.Context, in *proto.RegisterReques
 	return &proto.StatusReply{
 		Status: proto.Status_WAITING_APPROVAL,
 	}, nil
+}
+
+// Client API for Pairing service
+
+func (a *ApprovalPairing) StartPairing(ctx context.Context, peerID string) (PeerIdentity, error) {
+	if a.cc == nil {
+		// TODO: error handling via PeerIdentity
+		return nil, fmt.Errorf("pairing: no ClientConn")
+	}
+	c := proto.NewPairingClient(a.cc.CC)
+
+	req := &proto.RegisterRequest{Name: "within pairing mod"}
+	if resp, err := c.Register(ctx, req); err == nil {
+		fmt.Println("Pairing Resp:", resp)
+	}
+	// Receive certificate
+	var peerCert *x509.Certificate
+	select {
+	case tlsState := <-a.cc.TLSState:
+		peerCert = tlsState.PeerCertificates[0]
+		log.Println("Pr: Received TLS Info: ", tlsState.PeerCertificates[0])
+
+	case <-time.After(3 * time.Second):
+		return nil, fmt.Errorf("pairing: timeout: tls session or connection failed")
+	}
+
+	// Add remote peer's certificate to pool of interesting ones
+	a.certMgr.AddCert(peerCert, authentication.Inactive, time.Now())
+
+	return &peerIdentity{a.certMgr, peerCert}, nil
+}
+
+type peerIdentity struct {
+	cm       *authentication.PeerCertMgr
+	peerCert *x509.Certificate
+}
+
+func (pi *peerIdentity) Fingerprint() authentication.CertFingerprint {
+	return authentication.Sha256Fingerprint(pi.peerCert)
+}
+
+func (pi *peerIdentity) Accept() {
+	pi.cm.UpdateCert(pi.peerCert, authentication.Primary)
+	log.Printf("pairing: accepted peer with fp %s", string(pi.Fingerprint()))
+}
+
+func (pi *peerIdentity) Reject() {
+	pi.cm.RevokeCert(pi.peerCert)
+	log.Printf("pairing: revoked peer with fp %s", string(pi.Fingerprint()))
 }

@@ -25,7 +25,8 @@ type Serverize interface {
 }
 
 type options struct {
-	keyPairs []tls.Certificate
+	keyPairs   []tls.Certificate
+	strictness tls.ClientAuthType
 }
 
 // Option fills the option struct to configure TLS keys etc.
@@ -43,6 +44,16 @@ func TLSKeyFile(certFile, keyFile string) Option {
 	}
 }
 
+// StealthMode sets the gRPC in a mode to authenticate only known devices.
+// This means that modules like pairing will fail as a new client cannot
+// succeed in the TLS handshake. No interceptor will be triggered if
+// TLS fails.
+func StealthMode() Option {
+	return func(o *options) {
+		o.strictness = tls.RequireAndVerifyClientCert
+	}
+}
+
 type Server struct {
 	// authentication.ClientAuth
 	authentication.Auth
@@ -55,6 +66,9 @@ type Server struct {
 
 func NewServer(opts ...Option) Server {
 	var conf options
+	// Default options
+	conf.strictness = tls.RequireAnyClientCert
+	// Apply external config
 	for _, o := range opts {
 		o(&conf)
 	}
@@ -62,7 +76,7 @@ func NewServer(opts ...Option) Server {
 	clAuth := authentication.NewClientAuth()
 	return Server{
 		Auth:    &clAuth,
-		Pairing: pairing.NewApprovalPairing(clAuth.GetPeerCerts()),
+		Pairing: pairing.NewServerApproval(clAuth.GetPeerCerts()),
 		opts:    conf,
 	}
 }
@@ -118,9 +132,10 @@ func (s *Server) Prepare() (*grpc.Server, error) {
 		// RequireAnyClientCert
 		// VerifyClientCertIfGiven
 		// RequireAndVerifyClientCert
+		// Default is tls.RequireAnyClientCert.
 		// Verification is in authentication.AuthenticateClient. This abstraction is
 		// necessary for pairing: adding new certificates on the fly
-		ClientAuth: tls.RequireAnyClientCert,
+		ClientAuth: s.opts.strictness,
 		MinVersion: tls.VersionTLS12,
 	}
 	tlsConfig.BuildNameToCertificate()

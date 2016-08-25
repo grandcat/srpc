@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/grandcat/srpc/authentication"
-	"github.com/grandcat/srpc/pairing"
 	"github.com/grandcat/srpc/registry"
 
 	"google.golang.org/grpc"
@@ -37,7 +36,6 @@ func TLSKeyFile(certFile, keyFile string) Option {
 
 type Client struct {
 	authentication.ClientAuth
-	pair pairing.Pairing
 	// gRPC structs
 	rpcConn     *grpc.ClientConn
 	rpcBalancer grpc.Balancer
@@ -58,14 +56,19 @@ func NewClient(opts ...Option) Client {
 
 func (c *Client) prepare() {
 	// XXX: load default server certificate for now
-	peerCertMgr := c.GetPeerCerts()
-	peerCertMgr.LoadFromPath("client/")
+	// peerCertMgr := c.GetPeerCerts()
+	// peerCertMgr.LoadFromPath("client/")
 
 	// Custom name resolution with standard RoundRobin balancer
 	c.rpcBalancer = grpc.RoundRobin(new(registry.StaticAddrMap))
 }
 
-func (c *Client) StartPairing(peerID string) (*grpc.ClientConn, error) {
+type ClientConnPlus struct {
+	CC       *grpc.ClientConn
+	TLSState <-chan tls.ConnectionState
+}
+
+func (c *Client) DialUnsecure(peerID string) (*ClientConnPlus, error) {
 	if len(c.opts.keyPairs) == 0 {
 		return nil, fmt.Errorf("Load TLS key pair first.")
 	}
@@ -96,17 +99,6 @@ func (c *Client) StartPairing(peerID string) (*grpc.ClientConn, error) {
 		}
 		return conn, err
 	}
-
-	go func(c <-chan tls.ConnectionState) {
-		select {
-		case tlsState := <-c:
-			log.Println("Received TLS Info: ", tlsState.PeerCertificates[0])
-
-		case <-time.After(3 * time.Second):
-			log.Fatal("Did not receive certificate fast enough.")
-		}
-	}(cs)
-
 	// Set up a TLS (but insecure) connection to the server.
 	// The identity of the server is not clear yet. To initiate a bi-directional certificate
 	// exchange, we simply use the mechanism TLS offers with client-side authentication
@@ -125,7 +117,7 @@ func (c *Client) StartPairing(peerID string) (*grpc.ClientConn, error) {
 	// TODO: invoke pairing module here!
 
 	// Return Pairing module or channel with progress? So user can call custom methods?
-	return conn, nil
+	return &ClientConnPlus{conn, cs}, err
 }
 
 func (c *Client) Dial(peerID string) (*grpc.ClientConn, error) {

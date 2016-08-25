@@ -21,12 +21,13 @@ import (
 type CertRole uint8
 
 const (
-	// Revoked indicates that the referenced certificate is not valid and
-	// never wil be again.
+	// Revoked indicates that the referenced certificate is not valid for any
+	// action. On client-side, it should refuse a server connection.
+	// On server-side, a connection should be aborted as early as possible.
 	Revoked CertRole = iota
 	// Inactive is the default status for a new certificate. It describes
 	// that it is currently not used or associated. Therefore, it is not
-	// valid for any authentication. Most of the time, this will change
+	// valid for any server-side actions. Most of the time, this will change
 	// later on.
 	Inactive
 	// Primary indicates this is the primary certificate.
@@ -112,7 +113,9 @@ func (cm *PeerCertMgr) AddCert(cert *x509.Certificate, role CertRole, created ti
 	// Map cert to the reference cert pool.
 	// This is valid as every request needs to pass the interceptor verifying
 	// the validity of the certificate.
-	cm.ManagedCertPool.AddCert(cert)
+	if role >= Primary {
+		cm.ManagedCertPool.AddCert(cert)
+	}
 
 	// Unique fingerprint for reidentification
 	return fp, nil
@@ -126,6 +129,11 @@ func (cm *PeerCertMgr) UpdateCert(cert *x509.Certificate, role CertRole) {
 
 	if c, ok := cm.peerCertsByHash[fp]; ok {
 		c.Role = role
+		if role >= Primary {
+			cm.ManagedCertPool.AddCert(cert)
+		} else {
+			cm.buildCertPool()
+		}
 	}
 }
 
@@ -186,19 +194,12 @@ func (cm *PeerCertMgr) VerifyPeerIdentity(remote *x509.Certificate) (*PeerCert, 
 func (cm *PeerCertMgr) buildCertPool() {
 	pool := x509.NewCertPool()
 
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-
-	for _, pcs := range cm.peerCertsByCN {
-		for _, pc := range pcs {
+	for _, pc := range cm.peerCertsByHash {
+		if pc.Role >= Primary {
 			pool.AddCert(pc.Certificate)
 		}
 	}
-
-	// Replace currently used and referenced CertPool. This change is
-	// not visible for the current TLS configuration still referencing the
-	// previous CertPool instance.
-	// TODO: we need to restart the gRPC server in order to take effect.
+	// Update TLS cert pool.
 	cm.ManagedCertPool = pool
 }
 
