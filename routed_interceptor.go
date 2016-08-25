@@ -1,4 +1,4 @@
-package server
+package srpc
 
 import (
 	"fmt"
@@ -42,7 +42,10 @@ func (ci *RoutedInterceptor) Add(d UnaryInterceptInfo) error {
 	}
 	// Catch-all case: call interceptor for all methods that are not
 	// consumed by one of the preceding interceptors
-	if d.FullMethod[0] == "*" && d.Func != nil {
+	if d.FullMethod[0] == "*" {
+		if d.Func == nil {
+			return fmt.Errorf("no func provided for catch-all interceptor")
+		}
 		ci.catchAll = append(ci.catchAll, d)
 	}
 	// Everything else is routed to the function given
@@ -51,6 +54,15 @@ func (ci *RoutedInterceptor) Add(d UnaryInterceptInfo) error {
 			return fmt.Errorf("interceptor with method `%s` already exists", m)
 		}
 		ci.directed[m] = d
+	}
+	return nil
+}
+
+func (ci *RoutedInterceptor) AddMultiple(ds []UnaryInterceptInfo) error {
+	for _, d := range ds {
+		if e := ci.Add(d); e != nil {
+			return e
+		}
 	}
 	return nil
 }

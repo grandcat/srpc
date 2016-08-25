@@ -9,15 +9,15 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 
+	"github.com/grandcat/srpc"
 	"github.com/grandcat/srpc/authentication"
 	proto "github.com/grandcat/srpc/pairing/proto"
 	"golang.org/x/net/context"
 )
 
 type Pairing interface {
-	// MethodNames() string
+	srpc.ServerModule
 	// Server-side RPC
-	RegisterServer(g *grpc.Server)
 	Register(ctx context.Context, in *proto.RegisterRequest) (*proto.StatusReply, error)
 	// Client-side RPC
 	// Register(ctx context.Context, req interface{}) (interface{}, error)
@@ -38,7 +38,16 @@ func NewApprovalPairing(p *authentication.PeerCertMgr) Pairing {
 
 func (a *ApprovalPairing) RegisterServer(g *grpc.Server) {
 	proto.RegisterPairingServer(g, a)
-	log.Println("Register pairing module for gRPC")
+	log.Println("Register pairing service handler for gRPC")
+}
+
+func (a *ApprovalPairing) InterceptMethods() []srpc.UnaryInterceptInfo {
+	return []srpc.UnaryInterceptInfo{
+		srpc.UnaryInterceptInfo{
+			FullMethod: []string{"/auth.Pairing/Register"},
+			Consume:    true,
+		},
+	}
 }
 
 // Register defines the function handler for the server-side RPC service definition.

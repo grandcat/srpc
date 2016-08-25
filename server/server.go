@@ -8,8 +8,7 @@ import (
 	"net"
 	"time"
 
-	"golang.org/x/net/context"
-
+	"github.com/grandcat/srpc"
 	"github.com/grandcat/srpc/authentication"
 	"github.com/grandcat/srpc/pairing"
 	"google.golang.org/grpc"
@@ -21,9 +20,8 @@ var (
 )
 
 type Serverize interface {
-	authentication.Authorize
-	GetServer() *ServerContext
-	GetAuthState() *authentication.ClientAuth
+	authentication.Auth
+	GetServer() *Server
 }
 
 type options struct {
@@ -45,39 +43,35 @@ func TLSKeyFile(certFile, keyFile string) Option {
 	}
 }
 
-type ServerContext struct {
-	authentication.ClientAuth
-	Interceptor *RoutedInterceptor
+type Server struct {
+	// authentication.ClientAuth
+	authentication.Auth
+	Interceptor *srpc.RoutedInterceptor
 	Pairing     pairing.Pairing
 	// gRPC structs and options
 	rpc  *grpc.Server
 	opts options
 }
 
-func NewServer(opts ...Option) ServerContext {
+func NewServer(opts ...Option) Server {
 	var conf options
 	for _, o := range opts {
 		o(&conf)
 	}
 
-	cauth := authentication.NewClientAuth()
-	return ServerContext{
-		ClientAuth: cauth,
-		Pairing:    pairing.NewApprovalPairing(cauth.PeerCerts),
-		opts:       conf,
+	clAuth := authentication.NewClientAuth()
+	return Server{
+		Auth:    &clAuth,
+		Pairing: pairing.NewApprovalPairing(clAuth.GetPeerCerts()),
+		opts:    conf,
 	}
 }
 
-func (s *ServerContext) GetAuthState() *authentication.ClientAuth {
-	log.Println("GetAuthState called in ServerContext")
-	return &s.ClientAuth
-}
-
-func (s *ServerContext) GetServer() *ServerContext {
+func (s *Server) GetServer() *Server {
 	return s
 }
 
-func (s *ServerContext) Prepare() (*grpc.Server, error) {
+func (s *Server) Prepare() (*grpc.Server, error) {
 	peerCertMgr := s.GetPeerCerts()
 
 	// Check server key pair
@@ -89,7 +83,7 @@ func (s *ServerContext) Prepare() (*grpc.Server, error) {
 	// available as custom gRPC modules might be registered for this gRPC server
 	// instance.
 	if s.Interceptor == nil {
-		s.Interceptor = GlobalRoutedInterceptor
+		s.Interceptor = srpc.GlobalRoutedInterceptor
 	}
 	// Load client certificate for end2end authentication
 	// clientCer.Errorf("No server TLS key pair loaded.") := util.ReadCertFromPEM(*clientCertFile)
@@ -132,12 +126,12 @@ func (s *ServerContext) Prepare() (*grpc.Server, error) {
 	tlsConfig.BuildNameToCertificate()
 	ta := credentials.NewTLS(tlsConfig)
 
-	s.rpc = grpc.NewServer(grpc.Creds(ta), grpc.UnaryInterceptor(s.Interceptor.Invoke))
-
 	// XXX: Pass server to all modules handling requests by their own
-	s.Interceptor.Add(UnaryInterceptInfo{FullMethod: []string{"/auth.Pairing/Register"}, Consume: true})
-	s.Interceptor.Add(UnaryInterceptInfo{FullMethod: []string{"*"}, Consume: true, Func: authentication.AuthInterceptor})
-	s.ClientAuth.RegisterServer(s.rpc) //< not used
+	s.Interceptor.AddMultiple(s.Pairing.InterceptMethods())
+	s.Interceptor.AddMultiple(s.Auth.InterceptMethods())
+
+	s.rpc = grpc.NewServer(grpc.Creds(ta), grpc.UnaryInterceptor(s.Interceptor.Invoke))
+	s.Auth.RegisterServer(s.rpc) //< not used
 	s.Pairing.RegisterServer(s.rpc)
 
 	return s.rpc, nil
@@ -146,7 +140,7 @@ func (s *ServerContext) Prepare() (*grpc.Server, error) {
 // Serve starts listening for incoming connections and serves the requests through
 // the RPC backend (gRPC).
 // TODO: config listening address
-func (s *ServerContext) Serve() error {
+func (s *Server) Serve() error {
 	lis, err := net.Listen("tcp", ":50051")
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
@@ -162,12 +156,6 @@ func (s *ServerContext) Serve() error {
 	return nil
 }
 
-func (s *ServerContext) TearDown() {
+func (s *Server) TearDown() {
 	s.rpc.Stop()
-}
-
-func invokeUnaryInterceptorChain(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
-	// s := info.Server.(Serverize).GetServer()
-	// return s.intercept.Invoke(ctx, req, info, handler)
-	return GlobalRoutedInterceptor.Invoke(ctx, req, info, handler)
 }

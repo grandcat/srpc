@@ -24,7 +24,7 @@ var (
 // Gluecode logic
 type Logic struct {
 	// Wrap gRPC without much overhead or redirections
-	server.ServerContext
+	server.Server
 	// Good place for persisting own data
 }
 
