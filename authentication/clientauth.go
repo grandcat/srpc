@@ -53,11 +53,12 @@ func FromAuthContext(ctx context.Context) (a *Auth, ok bool) {
 	return
 }
 
-func AuthenticateClient(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+func AuthInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
 	log.Println("Intercepted call. Func:", info.FullMethod)
 
 	// Bypass authentication through certificate verification
 	if info.FullMethod == "/auth.Pairing/Register" {
+		log.Println("Should not go inside here!!!")
 		// For pairing, checks are less restrictive as it should be an unknown certificate.
 		// Still, we need to take care of the result by the higher-level handler before
 		// putting the certificate to the pool.

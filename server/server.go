@@ -8,6 +8,8 @@ import (
 	"net"
 	"time"
 
+	"golang.org/x/net/context"
+
 	"github.com/grandcat/srpc/authentication"
 	"github.com/grandcat/srpc/pairing"
 	"google.golang.org/grpc"
@@ -20,6 +22,7 @@ var (
 
 type Serverize interface {
 	authentication.Authorize
+	GetServer() *ServerContext
 	GetAuthState() *authentication.ClientAuth
 }
 
@@ -44,7 +47,8 @@ func TLSKeyFile(certFile, keyFile string) Option {
 
 type ServerContext struct {
 	authentication.ClientAuth
-	Pairing pairing.Pairing
+	Interceptor *RoutedInterceptor
+	Pairing     pairing.Pairing
 	// gRPC structs and options
 	rpc  *grpc.Server
 	opts options
@@ -69,12 +73,23 @@ func (s *ServerContext) GetAuthState() *authentication.ClientAuth {
 	return &s.ClientAuth
 }
 
+func (s *ServerContext) GetServer() *ServerContext {
+	return s
+}
+
 func (s *ServerContext) Prepare() (*grpc.Server, error) {
 	peerCertMgr := s.GetPeerCerts()
 
 	// Check server key pair
 	if len(s.opts.keyPairs) == 0 {
 		return nil, fmt.Errorf("No TLS key pair loaded.")
+	}
+	// Use global interceptor if no custom one is configured.
+	// If using a custom one, be aware that the sever context s might not be
+	// available as custom gRPC modules might be registered for this gRPC server
+	// instance.
+	if s.Interceptor == nil {
+		s.Interceptor = GlobalRoutedInterceptor
 	}
 	// Load client certificate for end2end authentication
 	// clientCer.Errorf("No server TLS key pair loaded.") := util.ReadCertFromPEM(*clientCertFile)
@@ -116,13 +131,12 @@ func (s *ServerContext) Prepare() (*grpc.Server, error) {
 	}
 	tlsConfig.BuildNameToCertificate()
 	ta := credentials.NewTLS(tlsConfig)
-	// Interceptor for Client Authentication
-	ic := grpc.UnaryServerInterceptor(authentication.AuthenticateClient)
 
-	s.rpc = grpc.NewServer(grpc.Creds(ta), grpc.UnaryInterceptor(ic))
+	s.rpc = grpc.NewServer(grpc.Creds(ta), grpc.UnaryInterceptor(s.Interceptor.Invoke))
 
-	// Pass server to all modules handling requests by their own
-	// TODO: more abstraction
+	// XXX: Pass server to all modules handling requests by their own
+	s.Interceptor.Add(UnaryInterceptInfo{FullMethod: []string{"/auth.Pairing/Register"}, Consume: true})
+	s.Interceptor.Add(UnaryInterceptInfo{FullMethod: []string{"*"}, Consume: true, Func: authentication.AuthInterceptor})
 	s.ClientAuth.RegisterServer(s.rpc) //< not used
 	s.Pairing.RegisterServer(s.rpc)
 
@@ -150,4 +164,10 @@ func (s *ServerContext) Serve() error {
 
 func (s *ServerContext) TearDown() {
 	s.rpc.Stop()
+}
+
+func invokeUnaryInterceptorChain(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+	// s := info.Server.(Serverize).GetServer()
+	// return s.intercept.Invoke(ctx, req, info, handler)
+	return GlobalRoutedInterceptor.Invoke(ctx, req, info, handler)
 }
