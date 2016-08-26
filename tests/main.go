@@ -70,7 +70,8 @@ func main() {
 			for {
 				select {
 				case pID := <-registered:
-					log.Println("Incoming registration from:", pID.FingerprintHex())
+					log.Println("Incoming registration from:", pID.Fingerprint())
+					time.Sleep(time.Second * 5) //< Simulate an out-of-band verification. Takes some time...
 					pID.Accept()
 				}
 			}
@@ -99,13 +100,20 @@ func testClient() {
 		panic(err)
 	}
 	pr := pairing.NewClientApproval(cl.GetPeerCerts(), connP)
-	ctx2, _ := context.WithTimeout(context.Background(), time.Second)
+	ctx2, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	gwIdentity, err := pr.StartPairing(ctx2, nil)
 	if err != nil {
 		panic(err)
 	}
 	log.Println("GWIdentity:", gwIdentity.Fingerprint())
 	gwIdentity.Accept()
+	// Wait for server to accept our pairing request
+	prStatus := pr.AwaitPairingResult(ctx2)
+	if r, ok := <-prStatus; ok {
+		log.Println("Pairing: peer responded with", r)
+	} else {
+		log.Println("Pairing aborted by peer")
+	}
 
 	// conR := pbPairing.NewPairingClient(connP)
 	// resp, err := conR.Register(context.Background(), &pbPairing.RegisterRequest{Name: "It's me"})

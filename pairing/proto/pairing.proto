@@ -28,9 +28,9 @@ message RegisterRequest {
 }
 
 enum Status {
-    REGISTERED = 0;
+    REJECTED = 0;
     WAITING_APPROVAL = 1;
-    REJECTED = 2;
+    REGISTERED = 2;
 }
 
 message StatusReply {

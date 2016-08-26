@@ -32,6 +32,8 @@ type Pairing interface {
 	Status(ctx context.Context, in *gtypeEmpty.Empty) (*proto.StatusReply, error)
 	// Client-side RPC
 	StartPairing(ctx context.Context, details *gtypeAny.Any) (PeerIdentity, error)
+	// TODO: integrate into StartPairing
+	AwaitPairingResult(ctx context.Context) <-chan PStatus
 }
 
 type PeerIdentity interface {
@@ -70,8 +72,11 @@ func (a *ApprovalPairing) RegisterServer(g *grpc.Server) {
 func (a *ApprovalPairing) InterceptMethods() []srpc.UnaryInterceptInfo {
 	return []srpc.UnaryInterceptInfo{
 		srpc.UnaryInterceptInfo{
-			FullMethod: []string{"/auth.Pairing/Register"},
-			Consume:    true,
+			FullMethod: []string{
+				"/auth.Pairing/Register",
+				"/auth.Pairing/Status",
+			},
+			Consume: true,
 		},
 	}
 }
@@ -186,6 +191,50 @@ func (a *ApprovalPairing) StartPairing(ctx context.Context, details *gtypeAny.An
 	a.certMgr.AddCert(peerCert, authentication.Inactive, time.Now())
 
 	return &peerIdentity{a.certMgr, peerCert}, nil
+}
+
+type PStatus proto.Status
+
+func (a *ApprovalPairing) AwaitPairingResult(ctx context.Context) <-chan PStatus {
+	notify := make(chan PStatus, 1)
+	if a.cc == nil {
+		close(notify)
+	}
+	c := proto.NewPairingClient(a.cc.CC)
+
+	// Poll server for changes in pairing. In case of success or reject, we are done.
+	go func(ctx context.Context, c proto.PairingClient, notify chan<- PStatus) {
+		t := time.NewTicker(time.Second * 3)
+		defer t.Stop()
+	polling:
+		for {
+			select {
+			case <-t.C:
+				// Do request every timer tick
+				resp, err := c.Status(ctx, &gtypeEmpty.Empty{})
+				if err != nil {
+					close(notify)
+					log.Printf("pairing: AwaitPairingResult: %v", err)
+					break polling
+				}
+				if resp.Status != proto.Status_WAITING_APPROVAL {
+					notify <- PStatus(resp.Status)
+					break polling
+				}
+				// Continue with ticker on Resp == Status_WAITING_APPROVAL
+				log.Println("Peer still not approved our pairing request...")
+
+			case <-ctx.Done():
+				if ctx.Err() == context.DeadlineExceeded || ctx.Err() == context.Canceled {
+					close(notify)
+					log.Println("pairing: canceled or timeout: registration not finished on peer side")
+					break polling
+				}
+			}
+		}
+	}(ctx, c, notify)
+
+	return notify
 }
 
 type peerIdentity struct {

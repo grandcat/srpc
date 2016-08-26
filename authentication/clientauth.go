@@ -84,15 +84,21 @@ func authInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServe
 		log.Println("TLSInfo:", auth.State)
 		peerCert := auth.State.PeerCertificates[0]
 
-		srvCtx := info.Server.(Auth)
-		peerCertMgr := srvCtx.GetPeerCerts()
-		// Check for peer's identity being available and valid, otherwise abort
-		identity, err := peerCertMgr.VerifyPeerIdentity(peerCert)
-		if err == nil {
-			ctx = NewAuthContext(ctx, &AuthState{PeerID: peerCert.Subject.CommonName, Verified: true})
-			log.Printf("Peer identity ok: %v \n", identity)
+		if srvCtx, ok := info.Server.(Auth); ok {
+			peerCertMgr := srvCtx.GetPeerCerts()
+			// Check for peer's identity being available and valid, otherwise abort
+			identity, err := peerCertMgr.VerifyPeerIdentity(peerCert)
+			if err == nil {
+				ctx = NewAuthContext(ctx, &AuthState{PeerID: peerCert.Subject.CommonName, Verified: true})
+				log.Printf("Peer identity ok: %v \n", identity)
+			} else {
+				return nil, err
+			}
+
 		} else {
-			return nil, err
+			// No server instance. Probably, it is another server module registered a separate gRPC context.
+			// In this case, an routed, consuming interceptor needs to be defined so this function is not reached.
+			log.Println("clientauth: called with wrong gRPC server context")
 		}
 
 	default:
