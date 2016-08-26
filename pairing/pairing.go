@@ -2,6 +2,7 @@ package pairing
 
 import (
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 
+	gproto "github.com/golang/protobuf/ptypes/any"
 	"github.com/grandcat/srpc"
 	"github.com/grandcat/srpc/authentication"
 	"github.com/grandcat/srpc/client"
@@ -17,12 +19,17 @@ import (
 	"golang.org/x/net/context"
 )
 
+var (
+	StatusRejected = errors.New("pairing rejected by peer")
+)
+
 type Pairing interface {
 	srpc.ServerModule
 	// Server-side RPC
 	Register(ctx context.Context, in *proto.RegisterRequest) (*proto.StatusReply, error)
+	IncomingRequests() <-chan PeerIdentity
 	// Client-side RPC
-	StartPairing(ctx context.Context, peerID string) (PeerIdentity, error)
+	StartPairing(ctx context.Context, details *gproto.Any) (PeerIdentity, error)
 }
 
 type PeerIdentity interface {
@@ -33,6 +40,7 @@ type PeerIdentity interface {
 
 type ApprovalPairing struct {
 	certMgr *authentication.PeerCertMgr
+	nch     chan PeerIdentity
 	// Client-side
 	cc *client.ClientConnPlus
 }
@@ -40,6 +48,7 @@ type ApprovalPairing struct {
 func NewServerApproval(p *authentication.PeerCertMgr) Pairing {
 	return &ApprovalPairing{
 		certMgr: p,
+		nch:     make(chan PeerIdentity, 8),
 	}
 }
 
@@ -76,7 +85,7 @@ func (a *ApprovalPairing) Register(ctx context.Context, in *proto.RegisterReques
 	// input := in.(*proto.RegisterRequest)
 	pr, ok := peer.FromContext(ctx)
 	if !ok {
-		return nil, fmt.Errorf("Failed to get peer info from ctx")
+		return nil, fmt.Errorf("pairing: failed to get peer info from ctx")
 	}
 
 	switch auth := pr.AuthInfo.(type) {
@@ -86,15 +95,13 @@ func (a *ApprovalPairing) Register(ctx context.Context, in *proto.RegisterReques
 		// Register peer certificate from TLS session as temporary candidate
 		if _, err := a.certMgr.AddCert(peerCert, authentication.Inactive, time.Now()); err != nil {
 			log.Printf("Error during Pairing Register: %v \n", err)
-
 			return nil, err
-			// return &proto.StatusReply{
-			// 	Status: proto.Status_REJECTED,
-			// }, nil
 		}
+		// Notify watcher to decide how to proceed with this new peer
+		a.nch <- &peerIdentity{cm: a.certMgr, peerCert: peerCert}
 
 	default:
-		return nil, fmt.Errorf("Unknown authentication")
+		return nil, fmt.Errorf("pairing: unknown authentication")
 	}
 
 	return &proto.StatusReply{
@@ -102,18 +109,26 @@ func (a *ApprovalPairing) Register(ctx context.Context, in *proto.RegisterReques
 	}, nil
 }
 
+func (a *ApprovalPairing) IncomingRequests() <-chan PeerIdentity {
+	return a.nch
+}
+
 // Client API for Pairing service
 
-func (a *ApprovalPairing) StartPairing(ctx context.Context, peerID string) (PeerIdentity, error) {
+func (a *ApprovalPairing) StartPairing(ctx context.Context, details *gproto.Any) (PeerIdentity, error) {
 	if a.cc == nil {
-		// TODO: error handling via PeerIdentity
 		return nil, fmt.Errorf("pairing: no ClientConn")
 	}
 	c := proto.NewPairingClient(a.cc.CC)
 
-	req := &proto.RegisterRequest{Name: "within pairing mod"}
-	if resp, err := c.Register(ctx, req); err == nil {
-		fmt.Println("Pairing Resp:", resp)
+	req := &proto.RegisterRequest{Name: "within pairing mod", Details: details}
+	resp, err := c.Register(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("pairing: %v", err)
+	}
+	fmt.Println("Pairing Resp:", resp)
+	if resp.Status == proto.Status_REJECTED {
+		return nil, StatusRejected
 	}
 	// Receive certificate
 	var peerCert *x509.Certificate
@@ -122,8 +137,10 @@ func (a *ApprovalPairing) StartPairing(ctx context.Context, peerID string) (Peer
 		peerCert = tlsState.PeerCertificates[0]
 		log.Println("Pr: Received TLS Info: ", tlsState.PeerCertificates[0])
 
-	case <-time.After(3 * time.Second):
-		return nil, fmt.Errorf("pairing: timeout: tls session or connection failed")
+	case <-ctx.Done():
+		if ctx.Err() == context.DeadlineExceeded || ctx.Err() == context.Canceled {
+			return nil, fmt.Errorf("pairing: canceled or timeout: tls session or connection failed")
+		}
 	}
 
 	// Add remote peer's certificate to pool of interesting ones

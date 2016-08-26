@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/grandcat/srpc/authentication"
 	"github.com/grandcat/srpc/client"
@@ -61,6 +62,20 @@ func main() {
 		}
 		proto.RegisterGreeterServer(g, allServer)
 		// pbPairing.RegisterPairingServer(g, allServer)
+		go func() {
+			log.Println("Main server: waiting for pairings")
+			registered := allServer.Pairing.IncomingRequests()
+			for {
+				select {
+				case pID := <-registered:
+					log.Println("Incoming registration from:", pID.Fingerprint())
+					pID.Accept()
+				}
+			}
+
+		}()
+
+		// Serve blocks infinitely
 		allServer.Serve()
 		log.Println("Serve() stopped")
 
@@ -84,7 +99,11 @@ func testClient() {
 		panic(err)
 	}
 	pr := pairing.NewClientApproval(cl.GetPeerCerts(), connP)
-	gwIdentity, _ := pr.StartPairing(context.Background(), peerID)
+	ctx2, _ := context.WithTimeout(context.Background(), time.Second)
+	gwIdentity, err := pr.StartPairing(ctx2, nil)
+	if err != nil {
+		panic(err)
+	}
 	log.Println("GWIdentity:", gwIdentity.Fingerprint())
 	gwIdentity.Accept()
 
