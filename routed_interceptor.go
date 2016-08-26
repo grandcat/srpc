@@ -40,21 +40,24 @@ func (ci *RoutedInterceptor) Add(d UnaryInterceptInfo) error {
 	if len(d.FullMethod) == 0 {
 		return nil
 	}
-	// Catch-all case: call interceptor for all methods that are not
-	// consumed by one of the preceding interceptors
-	if d.FullMethod[0] == "*" {
-		if d.Func == nil {
-			return fmt.Errorf("no func provided for catch-all interceptor")
-		}
-		ci.catchAll = append(ci.catchAll, d)
-	}
-	// Everything else is routed to the function given
 	for _, m := range d.FullMethod {
-		if _, exists := ci.directed[m]; exists {
-			return fmt.Errorf("interceptor with method `%s` already exists", m)
+		if m == "*" {
+			// Catch-all case: call interceptor for all methods that are not
+			// consumed by one of the preceding interceptors
+			if d.Func == nil {
+				return fmt.Errorf("no func provided for catch-all interceptor")
+			}
+			ci.catchAll = append(ci.catchAll, d)
+
+		} else {
+			// Everything else is routed to the function given
+			if _, exists := ci.directed[m]; exists {
+				return fmt.Errorf("interceptor with method `%s` already exists", m)
+			}
+			ci.directed[m] = d
 		}
-		ci.directed[m] = d
 	}
+
 	return nil
 }
 

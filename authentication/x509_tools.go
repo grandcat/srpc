@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 )
 
 type CertFingerprint string
@@ -20,6 +21,11 @@ func Sha256Fingerprint(cert *x509.Certificate) CertFingerprint {
 	// slightly less efficient.
 
 	return CertFingerprint(base64.StdEncoding.EncodeToString(rawFp[:]))
+}
+
+func Sha256FingerprintHex(cert *x509.Certificate) string {
+	rawFp := sha256.Sum256(cert.RawSubjectPublicKeyInfo)
+	return hex.EncodeToString(rawFp[:])
 }
 
 // func (fp CertFingerprint) MarshalJSON() ([]byte, error) {
