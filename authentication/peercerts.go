@@ -78,6 +78,20 @@ func (cm *PeerCertMgr) ActivePeerCertificates(cn string) int {
 	return 0
 }
 
+func (cm *PeerCertMgr) Role(cert *x509.Certificate) CertRole {
+	fp := Sha256Fingerprint(cert)
+
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if c, ok := cm.peerCertsByHash[fp]; ok {
+		return c.Role
+	}
+
+	// Otherwise, assume it was revoked and deleted
+	return Revoked
+}
+
 // AddCert adds a new certificate and associates it with the peer's CN.
 //
 // If a peer with the same CN exists, it is associated with this peer. The application

@@ -6,10 +6,14 @@ option java_outer_classname = "PbPairing";
 
 package auth;
 
+import "google/protobuf/empty.proto";
+
 // Interface exported by the server.
 service Pairing {
   // Register a new client certificate
   rpc Register (RegisterRequest) returns (StatusReply) {}
+  // Probe the status for the registered status
+  rpc Status (google.protobuf.Empty) returns (StatusReply) {}
 }
 
 import "google/protobuf/any.proto";

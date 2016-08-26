@@ -11,7 +11,8 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 
-	gproto "github.com/golang/protobuf/ptypes/any"
+	gtypeAny "github.com/golang/protobuf/ptypes/any"
+	gtypeEmpty "github.com/golang/protobuf/ptypes/empty"
 	"github.com/grandcat/srpc"
 	"github.com/grandcat/srpc/authentication"
 	"github.com/grandcat/srpc/client"
@@ -28,8 +29,9 @@ type Pairing interface {
 	// Server-side RPC
 	Register(ctx context.Context, in *proto.RegisterRequest) (*proto.StatusReply, error)
 	IncomingRequests() <-chan PeerIdentity
+	Status(ctx context.Context, in *gtypeEmpty.Empty) (*proto.StatusReply, error)
 	// Client-side RPC
-	StartPairing(ctx context.Context, details *gproto.Any) (PeerIdentity, error)
+	StartPairing(ctx context.Context, details *gtypeAny.Any) (PeerIdentity, error)
 }
 
 type PeerIdentity interface {
@@ -76,6 +78,29 @@ func (a *ApprovalPairing) InterceptMethods() []srpc.UnaryInterceptInfo {
 
 // Server API for Pairing service
 
+func certsFromCtx(ctx context.Context) ([]*x509.Certificate, error) {
+	pr, ok := peer.FromContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("pairing: no peer info in ctx")
+	}
+
+	var peerCerts []*x509.Certificate
+	switch auth := pr.AuthInfo.(type) {
+	case credentials.TLSInfo:
+		log.Println("TLSInfo:", auth.State)
+		peerCerts = auth.State.PeerCertificates
+
+	default:
+		return nil, fmt.Errorf("pairing: unknown authentication")
+	}
+
+	if len(peerCerts) == 0 {
+		return nil, fmt.Errorf("pairing: no peer cert given")
+	}
+
+	return peerCerts, nil
+}
+
 // Register defines the function handler for the server-side RPC service definition.
 func (a *ApprovalPairing) Register(ctx context.Context, in *proto.RegisterRequest) (*proto.StatusReply, error) {
 	log.Println("RPC `Register` called within ApprovalPairing")
@@ -84,26 +109,18 @@ func (a *ApprovalPairing) Register(ctx context.Context, in *proto.RegisterReques
 	// If Register returns an error, the certificate provided by the client, is not added to the pool at all:
 	// E.g. errors.New("Not responsible for this peer")
 	// input := in.(*proto.RegisterRequest)
-	pr, ok := peer.FromContext(ctx)
-	if !ok {
-		return nil, fmt.Errorf("pairing: failed to get peer info from ctx")
+	peerCerts, err := certsFromCtx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("pairing: %v", err)
 	}
 
-	switch auth := pr.AuthInfo.(type) {
-	case credentials.TLSInfo:
-		log.Println("TLSInfo:", auth.State)
-		peerCert := auth.State.PeerCertificates[0]
-		// Register peer certificate from TLS session as temporary candidate
-		if _, err := a.certMgr.AddCert(peerCert, authentication.Inactive, time.Now()); err != nil {
-			log.Printf("Error during Pairing Register: %v \n", err)
-			return nil, err
-		}
-		// Notify watcher to decide how to proceed with this new peer
-		a.nch <- &peerIdentity{cm: a.certMgr, peerCert: peerCert}
-
-	default:
-		return nil, fmt.Errorf("pairing: unknown authentication")
+	// Register peer certificate from TLS session as temporary candidate
+	if _, err := a.certMgr.AddCert(peerCerts[0], authentication.Inactive, time.Now()); err != nil {
+		log.Printf("Error during Pairing Register: %v \n", err)
+		return nil, err
 	}
+	// Notify watcher to decide how to proceed with this new peer
+	a.nch <- &peerIdentity{cm: a.certMgr, peerCert: peerCerts[0]}
 
 	return &proto.StatusReply{
 		Status: proto.Status_WAITING_APPROVAL,
@@ -114,9 +131,30 @@ func (a *ApprovalPairing) IncomingRequests() <-chan PeerIdentity {
 	return a.nch
 }
 
+func (a *ApprovalPairing) Status(ctx context.Context, in *gtypeEmpty.Empty) (*proto.StatusReply, error) {
+	peerCerts, err := certsFromCtx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("pairing: %v", err)
+	}
+
+	r := a.certMgr.Role(peerCerts[0])
+	var s proto.Status
+	switch r {
+	case authentication.Primary, authentication.Backup:
+		s = proto.Status_REGISTERED
+	case authentication.Inactive:
+		s = proto.Status_WAITING_APPROVAL
+	default:
+		s = proto.Status_REJECTED
+	}
+	return &proto.StatusReply{
+		Status: s,
+	}, nil
+}
+
 // Client API for Pairing service
 
-func (a *ApprovalPairing) StartPairing(ctx context.Context, details *gproto.Any) (PeerIdentity, error) {
+func (a *ApprovalPairing) StartPairing(ctx context.Context, details *gtypeAny.Any) (PeerIdentity, error) {
 	if a.cc == nil {
 		return nil, fmt.Errorf("pairing: no ClientConn")
 	}
