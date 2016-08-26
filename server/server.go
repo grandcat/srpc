@@ -10,7 +10,6 @@ import (
 
 	"github.com/grandcat/srpc"
 	"github.com/grandcat/srpc/authentication"
-	"github.com/grandcat/srpc/pairing"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -21,7 +20,6 @@ var (
 
 type Serverize interface {
 	authentication.Auth
-	GetServer() *Server
 }
 
 type options struct {
@@ -55,10 +53,9 @@ func StealthMode() Option {
 }
 
 type Server struct {
-	// authentication.ClientAuth
 	authentication.Auth
 	Interceptor *srpc.RoutedInterceptor
-	Pairing     pairing.Pairing
+	mods        []srpc.ServerModule
 	// gRPC structs and options
 	rpc  *grpc.Server
 	opts options
@@ -73,19 +70,29 @@ func NewServer(opts ...Option) Server {
 		o(&conf)
 	}
 
+	// Authentication module is a fixed part. Due to dependencies, load it first.
 	clAuth := authentication.NewClientAuth()
+	srpc.GlobalRoutedInterceptor.AddMultiple(clAuth.InterceptMethods())
 	return Server{
-		Auth:    &clAuth,
-		Pairing: pairing.NewServerApproval(clAuth.GetPeerCerts()),
-		opts:    conf,
+		Auth:        &clAuth,
+		Interceptor: srpc.GlobalRoutedInterceptor,
+		opts:        conf,
 	}
 }
 
-func (s *Server) GetServer() *Server {
-	return s
+func (s *Server) RegisterModules(mods ...srpc.ServerModule) error {
+	for _, m := range mods {
+		// Register interceptors if any
+		if err := s.Interceptor.AddMultiple(m.InterceptMethods()); err != nil {
+			return fmt.Errorf("abort loading modules: %v", err)
+		}
+		s.mods = append(s.mods, m)
+		log.Printf("Registered module %#v\n", m)
+	}
+	return nil
 }
 
-func (s *Server) Prepare() (*grpc.Server, error) {
+func (s *Server) Build() (*grpc.Server, error) {
 	peerCertMgr := s.GetPeerCerts()
 
 	// Check server key pair
@@ -96,9 +103,9 @@ func (s *Server) Prepare() (*grpc.Server, error) {
 	// If using a custom one, be aware that the sever context s might not be
 	// available as custom gRPC modules might be registered for this gRPC server
 	// instance.
-	if s.Interceptor == nil {
-		s.Interceptor = srpc.GlobalRoutedInterceptor
-	}
+	// if s.Interceptor == nil {
+	// 	s.Interceptor = srpc.GlobalRoutedInterceptor
+	// }
 	// Load client certificate for end2end authentication
 	// clientCer.Errorf("No server TLS key pair loaded.") := util.ReadCertFromPEM(*clientCertFile)
 	// if err != nil {
@@ -141,13 +148,12 @@ func (s *Server) Prepare() (*grpc.Server, error) {
 	tlsConfig.BuildNameToCertificate()
 	ta := credentials.NewTLS(tlsConfig)
 
-	// XXX: Pass server to all modules handling requests by their own
-	s.Interceptor.AddMultiple(s.Pairing.InterceptMethods())
-	s.Interceptor.AddMultiple(s.Auth.InterceptMethods())
-
 	s.rpc = grpc.NewServer(grpc.Creds(ta), grpc.UnaryInterceptor(s.Interceptor.Invoke))
+	// Register server modules for this gRPC server if necessary
 	s.Auth.RegisterServer(s.rpc) //< not used
-	s.Pairing.RegisterServer(s.rpc)
+	for _, m := range s.mods {
+		m.RegisterServer(s.rpc)
+	}
 
 	return s.rpc, nil
 }

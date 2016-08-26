@@ -34,6 +34,7 @@ type Pairing interface {
 
 type PeerIdentity interface {
 	Fingerprint() authentication.CertFingerprint
+	FingerprintHex() string
 	Accept()
 	Reject()
 }
@@ -156,6 +157,10 @@ type peerIdentity struct {
 
 func (pi *peerIdentity) Fingerprint() authentication.CertFingerprint {
 	return authentication.Sha256Fingerprint(pi.peerCert)
+}
+
+func (pi *peerIdentity) FingerprintHex() string {
+	return authentication.Sha256FingerprintHex(pi.peerCert)
 }
 
 func (pi *peerIdentity) Accept() {

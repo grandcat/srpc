@@ -47,16 +47,18 @@ func main() {
 		testClient()
 
 	} else {
-		// Configure server options
+		// Configure server and gRPC options
 		tlsKeyPrim := server.TLSKeyFile(*certFile, *keyFile)
-
 		allServer := &Logic{server.NewServer(tlsKeyPrim)}
+		// Register pairing module
+		mPairing := pairing.NewServerApproval(allServer.GetPeerCerts())
+		allServer.RegisterModules(mPairing)
 		// myServer := LogicEntity(baseServer)
 		// innerServer := server.Serverize(myServer)
 		// innerServer := server.Serverize(allServer)
 		// g, _ := server.Prepare(server.Serverize(allServer))
 
-		g, err := allServer.Prepare()
+		g, err := allServer.Build()
 		if err != nil {
 			panic(err)
 		}
@@ -64,11 +66,11 @@ func main() {
 		// pbPairing.RegisterPairingServer(g, allServer)
 		go func() {
 			log.Println("Main server: waiting for pairings")
-			registered := allServer.Pairing.IncomingRequests()
+			registered := mPairing.IncomingRequests()
 			for {
 				select {
 				case pID := <-registered:
-					log.Println("Incoming registration from:", pID.Fingerprint())
+					log.Println("Incoming registration from:", pID.FingerprintHex())
 					pID.Accept()
 				}
 			}
@@ -78,9 +80,7 @@ func main() {
 		// Serve blocks infinitely
 		allServer.Serve()
 		log.Println("Serve() stopped")
-
 	}
-
 }
 
 func testClient() {
