@@ -39,20 +39,25 @@ type Pairing interface {
 type PeerIdentity interface {
 	Fingerprint() authentication.CertFingerprint
 	FingerprintHex() string
+	Details() gtypeAny.Any
+	// Accept this peer
 	Accept()
+	// Reject this peer
 	Reject()
 }
 
 type ApprovalPairing struct {
 	certMgr *authentication.PeerCertMgr
+	info    gtypeAny.Any
 	nch     chan PeerIdentity
 	// Client-side
 	cc *client.ClientConnPlus
 }
 
-func NewServerApproval(p *authentication.PeerCertMgr) Pairing {
+func NewServerApproval(p *authentication.PeerCertMgr, info gtypeAny.Any) Pairing {
 	return &ApprovalPairing{
 		certMgr: p,
+		info:    info,
 		nch:     make(chan PeerIdentity, 8),
 	}
 }
@@ -124,11 +129,18 @@ func (a *ApprovalPairing) Register(ctx context.Context, in *proto.RegisterReques
 		log.Printf("Error during Pairing Register: %v \n", err)
 		return nil, err
 	}
+	// Copy remote peer info
+	var peerInfo gtypeAny.Any
+	if in.Details != nil {
+		peerInfo = *in.Details
+	}
+	// TODO: limit size of any field
 	// Notify watcher to decide how to proceed with this new peer
-	a.nch <- &peerIdentity{cm: a.certMgr, peerCert: peerCerts[0]}
+	a.nch <- &peerIdentity{cm: a.certMgr, peerCert: peerCerts[0], info: peerInfo}
 
 	return &proto.StatusReply{
-		Status: proto.Status_WAITING_APPROVAL,
+		Status:  proto.Status_WAITING_APPROVAL,
+		Details: &a.info,
 	}, nil
 }
 
@@ -186,8 +198,12 @@ func (a *ApprovalPairing) StartPairing(ctx context.Context, details *gtypeAny.An
 
 	// Add remote peer's certificate to pool of interesting ones
 	a.certMgr.AddCert(peerCert, authentication.Inactive, time.Now())
-
-	return &peerIdentity{a.certMgr, peerCert}, nil
+	// Copy remote peer info
+	var peerInfo gtypeAny.Any
+	if resp.Details != nil {
+		peerInfo = *resp.Details
+	}
+	return &peerIdentity{a.certMgr, peerCert, peerInfo}, nil
 }
 
 type PStatus proto.Status
@@ -237,6 +253,7 @@ func (a *ApprovalPairing) AwaitPairingResult(ctx context.Context) <-chan PStatus
 type peerIdentity struct {
 	cm       *authentication.PeerCertMgr
 	peerCert *x509.Certificate
+	info     gtypeAny.Any
 }
 
 func (pi *peerIdentity) Fingerprint() authentication.CertFingerprint {
@@ -245,6 +262,10 @@ func (pi *peerIdentity) Fingerprint() authentication.CertFingerprint {
 
 func (pi *peerIdentity) FingerprintHex() string {
 	return authentication.Sha256FingerprintHex(pi.peerCert)
+}
+
+func (pi *peerIdentity) Details() gtypeAny.Any {
+	return pi.info
 }
 
 func (pi *peerIdentity) Accept() {

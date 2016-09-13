@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	gtypeAny "github.com/golang/protobuf/ptypes/any"
 	"github.com/grandcat/srpc/authentication"
 	"github.com/grandcat/srpc/client"
 	proto "github.com/grandcat/srpc/helloworld"
@@ -51,7 +52,7 @@ func main() {
 		tlsKeyPrim := server.TLSKeyFile(*certFile, *keyFile)
 		allServer := &Logic{server.NewServer(tlsKeyPrim)}
 		// Register pairing module
-		mPairing := pairing.NewServerApproval(allServer.GetPeerCerts())
+		mPairing := pairing.NewServerApproval(allServer.GetPeerCerts(), gtypeAny.Any{"flexsmc/peerinfo", []byte{1, 2, 3}})
 		allServer.RegisterModules(mPairing)
 		// myServer := LogicEntity(baseServer)
 		// innerServer := server.Serverize(myServer)
@@ -70,7 +71,7 @@ func main() {
 			for {
 				select {
 				case pID := <-registered:
-					log.Println("Incoming registration from:", pID.Fingerprint())
+					log.Println("Incoming registration from:", pID.Fingerprint(), "with details:", pID.Details())
 					time.Sleep(time.Second * 5) //< Simulate an out-of-band verification. Takes some time...
 					pID.Accept()
 				}
@@ -101,11 +102,11 @@ func testClient() {
 	}
 	pr := pairing.NewClientApproval(cl.GetPeerCerts(), connP)
 	ctx2, _ := context.WithTimeout(context.Background(), 10*time.Second)
-	gwIdentity, err := pr.StartPairing(ctx2, nil)
+	gwIdentity, err := pr.StartPairing(ctx2, &gtypeAny.Any{"flexsmc/peerinfo", []byte{3, 4, 5}})
 	if err != nil {
 		panic(err)
 	}
-	log.Println("GWIdentity:", gwIdentity.Fingerprint())
+	log.Println("GWIdentity:", gwIdentity.Fingerprint(), "GWDetails:", gwIdentity.Details())
 	gwIdentity.Accept()
 	// Wait for server to accept our pairing request
 	prStatus := pr.AwaitPairingResult(ctx2)
