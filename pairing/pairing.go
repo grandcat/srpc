@@ -143,15 +143,12 @@ func (a *ApprovalPairing) Status(ctx context.Context, in *gtypeEmpty.Empty) (*pr
 	}
 
 	r := a.certMgr.Role(peerCerts[0])
-	var s proto.Status
-	switch r {
-	case authentication.Primary, authentication.Backup:
-		s = proto.Status_REGISTERED
-	case authentication.Inactive:
-		s = proto.Status_WAITING_APPROVAL
-	default:
-		s = proto.Status_REJECTED
+	// Map peerCrt roles to restricted subset of StatusReply
+	if r > authentication.Primary {
+		r = authentication.Primary
 	}
+	s := proto.Status(r)
+
 	return &proto.StatusReply{
 		Status: s,
 	}, nil
