@@ -120,12 +120,9 @@ func (s *Server) Build() (*grpc.Server, error) {
 	// Result: works, but check for race conditions, e.g. hold server when adding new certs
 	go func() {
 		time.Sleep(5 * time.Second)
-		// log.Println("now adding client cert")
-		// log.Println(srv.certMgr.AddCert(clientCert, authentication.Primary))
-		// log.Println(srv.certMgr.AddCert(clientCert2, authentication.Primary))
-		// Persist managed certificates to disk
+		// Import and persist managed certificates to disk
 		if err := peerCertMgr.LoadFromPath(""); err != nil {
-			panic(err)
+			fmt.Println(err)
 		}
 		peerCertMgr.StoreToPath("")
 	}()
