@@ -65,7 +65,7 @@ type Server struct {
 func NewServer(opts ...Option) Server {
 	var conf options
 	// Default options
-	conf.strictness = tls.RequestClientCert //RequireAnyClientCert
+	conf.strictness = tls.RequireAnyClientCert
 	// Apply external config
 	for _, o := range opts {
 		o(&conf)
