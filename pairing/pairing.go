@@ -39,6 +39,7 @@ type Pairing interface {
 type PeerIdentity interface {
 	Fingerprint() authentication.CertFingerprint
 	FingerprintHex() string
+	// User-supplied information passed with pairing
 	Details() gtypeAny.Any
 	// Accept this peer
 	Accept()
@@ -101,11 +102,11 @@ func certsFromCtx(ctx context.Context) ([]*x509.Certificate, error) {
 		peerCerts = auth.State.PeerCertificates
 
 	default:
-		return nil, fmt.Errorf("pairing: unknown authentication")
+		return nil, fmt.Errorf("unknown authentication")
 	}
 
 	if len(peerCerts) == 0 {
-		return nil, fmt.Errorf("pairing: no peer cert given")
+		return nil, fmt.Errorf("no peer cert given")
 	}
 
 	return peerCerts, nil
@@ -124,7 +125,12 @@ func (a *ApprovalPairing) Register(ctx context.Context, in *proto.RegisterReques
 		return nil, fmt.Errorf("pairing: %v", err)
 	}
 
-	// Register peer certificate from TLS session as temporary candidate
+	// Register peer certificate from TLS session as temporary candidate.
+	// If there is already an active peer with the same CN, do not accept it. Another
+	// peer tries to steal the identity.
+	if a.certMgr.ActivePeerCertificates(peerCerts[0].Subject.CommonName) > 0 {
+		return nil, fmt.Errorf("identity reserved")
+	}
 	if _, err := a.certMgr.AddCert(peerCerts[0], authentication.Inactive, time.Now()); err != nil {
 		log.Printf("Error during Pairing Register: %v \n", err)
 		return nil, err
@@ -269,6 +275,7 @@ func (pi *peerIdentity) Details() gtypeAny.Any {
 }
 
 func (pi *peerIdentity) Accept() {
+	// TODO: replace with AddCert and do not add it temporarily
 	pi.cm.UpdateCert(pi.peerCert, authentication.Primary)
 	log.Printf("pairing: accepted peer with fp %s", string(pi.Fingerprint()))
 }

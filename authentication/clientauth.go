@@ -18,7 +18,13 @@ type Auth interface {
 
 type authStateKey struct{}
 
-// NewAuthContext creates a new context with authentication information attached.
+// AuthState contains the information about the succeeded (or failed) client authentication.
+type AuthState struct {
+	PeerID   string
+	Verified bool
+}
+
+// NewAuthContext creates a new context appending authentication information.
 func NewAuthContext(ctx context.Context, a *AuthState) context.Context {
 	return context.WithValue(ctx, authStateKey{}, a)
 }
@@ -58,12 +64,6 @@ func (ca *ClientAuth) InterceptMethods() []srpc.UnaryInterceptInfo {
 
 func (ca *ClientAuth) GetPeerCerts() *PeerCertMgr {
 	return ca.PeerCerts
-}
-
-// Auth contains the information of the succeeded (or failed) authentication for an RPC.
-type AuthState struct {
-	PeerID   string
-	Verified bool
 }
 
 func authInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
