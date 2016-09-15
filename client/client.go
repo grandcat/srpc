@@ -76,22 +76,21 @@ func (c *Client) DialUnsecure(peerID string) (*ClientConnPlus, error) {
 		c.prepare()
 	}
 
-	tc := &tls.Config{
-		Certificates: c.opts.keyPairs,
-		RootCAs:      x509.NewCertPool(),
-		// Pass CN as IP SANs do not work in a dynamic environment
-		ServerName: peerID,
-		// Skip verification as we do not know server's certificate yet
-		InsecureSkipVerify: true,
-	}
-
 	// Export TLS connection state and received server certificate during TLS handshake
-	var tlsConnState tls.ConnectionState
 	cs := make(chan tls.ConnectionState, 1)
 	tlsDialer := func(addr string, timeout time.Duration) (net.Conn, error) {
+		tc := &tls.Config{
+			Certificates: c.opts.keyPairs,
+			RootCAs:      x509.NewCertPool(),
+			// Pass CN as IP SANs do not work in a dynamic environment
+			ServerName: peerID,
+			// Skip verification as we do not know server's certificate yet
+			InsecureSkipVerify: true,
+		}
+
 		conn, err := tls.DialWithDialer(&net.Dialer{Timeout: timeout}, "tcp", addr, tc)
 		if err == nil {
-			tlsConnState = conn.ConnectionState() // TODO: pass as channel
+			tlsConnState := conn.ConnectionState()
 			cs <- tlsConnState
 			// log.Println("TLS Info: ", tlsConnState.PeerCertificates[0])
 			// c.ClientAuth.PeerCerts.AddCert(tlsConnState.PeerCertificates[0], authentication.Primary, time.Now())

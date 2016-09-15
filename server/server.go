@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"flag"
 	"fmt"
 	"log"
@@ -64,7 +65,7 @@ type Server struct {
 func NewServer(opts ...Option) Server {
 	var conf options
 	// Default options
-	conf.strictness = tls.RequireAnyClientCert
+	conf.strictness = tls.RequestClientCert //RequireAnyClientCert
 	// Apply external config
 	for _, o := range opts {
 		o(&conf)
@@ -106,18 +107,8 @@ func (s *Server) Build() (*grpc.Server, error) {
 	// if s.Interceptor == nil {
 	// 	s.Interceptor = srpc.GlobalRoutedInterceptor
 	// }
-	// Load client certificate for end2end authentication
-	// clientCer.Errorf("No server TLS key pair loaded.") := util.ReadCertFromPEM(*clientCertFile)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// clientCert2, err := util.ReadCertFromPEM(*clientCertFile2)
-	// if err != nil {
-	// 	panic(err)
-	// }
 
-	// Test: dynamically add client cert later
-	// Result: works, but check for race conditions, e.g. hold server when adding new certs
+	// XXX: dynamically add client cert later
 	go func() {
 		time.Sleep(5 * time.Second)
 		// Import and persist managed certificates to disk
@@ -127,10 +118,30 @@ func (s *Server) Build() (*grpc.Server, error) {
 		peerCertMgr.StoreToPath("")
 	}()
 
+	// CertPool based on verification strictness as a workaround for gRPC-go.
+	// If the server is running in stealth mode, the aim is to reject unknown clients with
+	// missing client certificate match at an early stage of the TLS stack.
+	// During normal operation, the client verification is done by a separate module to allow
+	// features like pairing. In general, this needs less restrictive settings, so
+	// 		`ClientAuth <= RequireAnyClientCert`.
+	// Normally, the content of `ClientCAs` should not be considered in this case anymore. But
+	// it seems to be a bug in grpc-go (28707e14b1d2b2f5da81474dea2790d71e526987).
+	//
+	// BUG description for gRPC-go:
+	// 		If a client tries to establish an unauthenticated conn, and there is 1 entry in
+	//		ClientCAs (though ClientAuth: RequireAnyClientCert), it will pretend that the client
+	// 		did not send a client certificate. Maybe, there is still some validation in place
+	// 		that should be offline by setting `ClientAuth: RequireAnyClientCert`.
+	var clientCAs *x509.CertPool
+	if s.opts.strictness > tls.RequireAnyClientCert {
+		clientCAs = peerCertMgr.ManagedCertPool
+	} else {
+		clientCAs = x509.NewCertPool()
+	}
 	// Setup TLS client authentication
 	tlsConfig := &tls.Config{
 		Certificates: s.opts.keyPairs,
-		ClientCAs:    peerCertMgr.ManagedCertPool,
+		ClientCAs:    clientCAs,
 		// NoClientCert
 		// RequestClientCert
 		// RequireAnyClientCert
@@ -141,6 +152,7 @@ func (s *Server) Build() (*grpc.Server, error) {
 		// necessary for pairing: adding new certificates on the fly
 		ClientAuth: s.opts.strictness,
 		MinVersion: tls.VersionTLS12,
+		// SessionTicketsDisabled: true,
 	}
 	tlsConfig.BuildNameToCertificate()
 	ta := credentials.NewTLS(tlsConfig)
@@ -175,5 +187,7 @@ func (s *Server) Serve() error {
 }
 
 func (s *Server) TearDown() {
-	s.rpc.Stop()
+	if s.rpc != nil {
+		s.rpc.Stop()
+	}
 }
