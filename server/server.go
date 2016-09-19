@@ -157,7 +157,7 @@ func (s *Server) Build() (*grpc.Server, error) {
 	tlsConfig.BuildNameToCertificate()
 	ta := credentials.NewTLS(tlsConfig)
 
-	s.rpc = grpc.NewServer(grpc.Creds(ta), grpc.UnaryInterceptor(s.Interceptor.Invoke))
+	s.rpc = grpc.NewServer(grpc.Creds(ta), grpc.UnaryInterceptor(s.Interceptor.InvokeUnary), grpc.StreamInterceptor(s.Interceptor.InvokeStream))
 	// Register server modules for this gRPC server if necessary
 	s.Auth.RegisterServer(s.rpc) //< not used
 	for _, m := range s.mods {

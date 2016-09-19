@@ -3,6 +3,7 @@ package authentication
 import (
 	"fmt"
 	"log"
+	"net"
 
 	"github.com/grandcat/srpc"
 	"golang.org/x/net/context"
@@ -20,7 +21,8 @@ type authStateKey struct{}
 
 // AuthState contains the information about the succeeded (or failed) client authentication.
 type AuthState struct {
-	PeerID   string
+	ID       PeerID
+	Addr     net.Addr
 	Verified bool
 }
 
@@ -57,7 +59,8 @@ func (ca *ClientAuth) InterceptMethods() []srpc.UnaryInterceptInfo {
 		srpc.UnaryInterceptInfo{
 			FullMethod: []string{"*"},
 			Consume:    true,
-			Func:       authInterceptor,
+			UnaryFunc:  authenticateUnary,
+			StreamFunc: authenticateStream,
 		},
 	}
 }
@@ -66,14 +69,7 @@ func (ca *ClientAuth) GetPeerCerts() *PeerCertMgr {
 	return ca.PeerCerts
 }
 
-func authInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
-	log.Println("Auth: Intercepted call. Func:", info.FullMethod)
-
-	// Bypass authentication through certificate verification
-	if info.FullMethod == "/auth.Pairing/Register" {
-		panic("Should not go inside here!!!")
-	}
-
+func authenticate(ctx context.Context, server interface{}) (context.Context, error) {
 	pr, ok := peer.FromContext(ctx)
 	if !ok {
 		return nil, fmt.Errorf("Failed to get peer info from ctx")
@@ -81,15 +77,15 @@ func authInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServe
 
 	switch auth := pr.AuthInfo.(type) {
 	case credentials.TLSInfo:
-		log.Println("TLSInfo:", auth.State)
+		log.Println(">>TLSInfo:", auth.State)
 		peerCert := auth.State.PeerCertificates[0]
 
-		if srvCtx, ok := info.Server.(Auth); ok {
+		if srvCtx, ok := server.(Auth); ok {
 			peerCertMgr := srvCtx.GetPeerCerts()
 			// Check for peer's identity being available and valid, otherwise abort
 			identity, err := peerCertMgr.VerifyPeerIdentity(peerCert)
 			if err == nil {
-				ctx = NewAuthContext(ctx, &AuthState{PeerID: peerCert.Subject.CommonName, Verified: true})
+				ctx = NewAuthContext(ctx, &AuthState{ID: PeerID(peerCert.Subject.CommonName), Addr: pr.Addr, Verified: true})
 				log.Printf("Peer identity ok: %v \n", identity)
 			} else {
 				return nil, err
@@ -98,13 +94,33 @@ func authInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServe
 		} else {
 			// No server instance. Probably, it is another server module registered a separate gRPC context.
 			// In this case, an routed, consuming interceptor needs to be defined so this function is not reached.
-			log.Println("clientauth: called with wrong gRPC server context")
+			return nil, fmt.Errorf("internal server error: wrong gRPC server context")
 		}
 
 	default:
-		return nil, fmt.Errorf("Unknown authentication")
+		return nil, fmt.Errorf("unknown authentication")
 	}
 
-	// If we reached that far, it should be a valid peer.
+	return ctx, nil
+}
+
+func authenticateUnary(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+	ctx, err = authenticate(ctx, info.Server)
+	if err != nil {
+		return nil, err
+	}
+	// Authentication passed: invoke original unary handler with authentication
+	// result appended to context.
 	return handler(ctx, req)
+}
+
+func authenticateStream(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	ctx, err := authenticate(ss.Context(), srv)
+	if err != nil {
+		return err
+	}
+	// Authentication passed: invoke original stream handler with authentication
+	// result appended to context.
+	css := &ContextualServerStream{ServerStream: ss, Ctx: ctx}
+	return handler(srv, css)
 }

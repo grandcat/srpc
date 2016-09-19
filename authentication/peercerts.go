@@ -37,6 +37,8 @@ const (
 	Backup
 )
 
+type PeerID string
+
 type PeerCert struct {
 	Certificate *x509.Certificate `json:"-"`
 	Role        CertRole          `json:"certRole"`
@@ -46,7 +48,7 @@ type PeerCert struct {
 // NewCertManager creates a new instance to manage our own and peers' certificates
 func NewPeerCertMgr() *PeerCertMgr {
 	return &PeerCertMgr{
-		peerCertsByCN:   make(map[string][]*PeerCert),
+		peerCertsByCN:   make(map[PeerID][]*PeerCert),
 		peerCertsByHash: make(map[CertFingerprint]*PeerCert),
 		ManagedCertPool: x509.NewCertPool(),
 	}
@@ -54,7 +56,7 @@ func NewPeerCertMgr() *PeerCertMgr {
 
 type PeerCertMgr struct {
 	// Map each peer's qualified name (=CN) to its certificates
-	peerCertsByCN   map[string][]*PeerCert
+	peerCertsByCN   map[PeerID][]*PeerCert
 	peerCertsByHash map[CertFingerprint]*PeerCert
 	mu              sync.RWMutex
 
@@ -64,7 +66,7 @@ type PeerCertMgr struct {
 func (cm *PeerCertMgr) ActivePeerCertificates(cn string) int {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
-	p, ok := cm.peerCertsByCN[cn]
+	p, ok := cm.peerCertsByCN[PeerID(cn)]
 	if ok {
 		activeCerts := 0
 		for _, c := range p {
@@ -98,7 +100,7 @@ func (cm *PeerCertMgr) Role(cert *x509.Certificate) CertRole {
 // should check before whether a peer exists if this variant is not desired.
 func (cm *PeerCertMgr) AddCert(cert *x509.Certificate, role CertRole, created time.Time) (CertFingerprint, error) {
 	// Use cert's CommonName and fingerprint for identification
-	cn := cert.Subject.CommonName
+	cn := PeerID(cert.Subject.CommonName)
 	fp := Sha256Fingerprint(cert)
 
 	cm.mu.Lock()

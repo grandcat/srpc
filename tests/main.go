@@ -38,7 +38,7 @@ func (s *Logic) SayHello(ctx context.Context, in *proto.HelloRequest) (*proto.He
 		return nil, fmt.Errorf("Failed to get authentication info from ctx")
 	}
 
-	return &proto.HelloReply{Message: fmt.Sprintf("Hello %#v (%s) with birthday on %#v", auth.PeerID, in.Name, in.Birth)}, nil
+	return &proto.HelloReply{Message: fmt.Sprintf("Hello %#v (%s) with birthday on %#v", auth.ID, in.Name, in.Birth)}, nil
 }
 
 func main() {

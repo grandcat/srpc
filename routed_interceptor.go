@@ -16,10 +16,12 @@ type UnaryInterceptInfo struct {
 	// consumes it. In this case, interception ends here.
 	// Last, it will stop at the end of the chain.
 	Consume bool
-	// The function to execute on a request.
+	// The function to execute on an unary request.
 	// If nil, the default handler is executed for a routed entry. Catch-all
 	// entries must implement a handler function.
-	Func grpc.UnaryServerInterceptor
+	UnaryFunc grpc.UnaryServerInterceptor
+	// The function to execute for a stream.
+	StreamFunc grpc.StreamServerInterceptor
 }
 
 var GlobalRoutedInterceptor = NewRoutedInterceptor()
@@ -44,7 +46,7 @@ func (ci *RoutedInterceptor) Add(d UnaryInterceptInfo) error {
 		if m == "*" {
 			// Catch-all case: call interceptor for all methods that are not
 			// consumed by one of the preceding interceptors
-			if d.Func == nil {
+			if d.UnaryFunc == nil {
 				return fmt.Errorf("no func provided for catch-all interceptor")
 			}
 			ci.catchAll = append(ci.catchAll, d)
@@ -70,12 +72,12 @@ func (ci *RoutedInterceptor) AddMultiple(ds []UnaryInterceptInfo) error {
 	return nil
 }
 
-func (ci *RoutedInterceptor) Invoke(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+func (ci *RoutedInterceptor) InvokeUnary(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
 	// Routed interceptions
 	if i, ok := ci.directed[info.FullMethod]; ok {
-		log.Println("Directed interceptor:", i)
-		if i.Func != nil {
-			resp, err = i.Func(ctx, req, info, handler)
+		log.Println("[Unary] Directed interceptor:", i)
+		if i.UnaryFunc != nil {
+			resp, err = i.UnaryFunc(ctx, req, info, handler)
 		} else {
 			resp, err = handler(ctx, req)
 		}
@@ -83,12 +85,14 @@ func (ci *RoutedInterceptor) Invoke(ctx context.Context, req interface{}, info *
 			return
 		}
 	}
-	// Catch-all interceptions
+	// Unary catch-all interceptions
 	// XXX: only the last one defines the response right now! Ctx is ok
 	for _, i := range ci.catchAll {
 		// TODO: adapt to chain multiple handlers
-		log.Println("Catchall interceptor:", i)
-		resp, err = i.Func(ctx, req, info, handler)
+		log.Println("[Unary] Catchall interceptor:", i)
+		if i.UnaryFunc != nil {
+			resp, err = i.UnaryFunc(ctx, req, info, handler)
+		}
 
 		if i.Consume {
 			return
@@ -96,5 +100,35 @@ func (ci *RoutedInterceptor) Invoke(ctx context.Context, req interface{}, info *
 	}
 	// End of chain: default handler as fallback
 	resp, err = handler(ctx, req)
+	return
+}
+
+func (ci *RoutedInterceptor) InvokeStream(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) (err error) {
+	// Routed stream interceptions
+	if i, ok := ci.directed[info.FullMethod]; ok {
+		log.Println("[Stream] Directed interceptor:", i)
+		if i.StreamFunc != nil {
+			err = i.StreamFunc(srv, ss, info, handler)
+		} else {
+			err = handler(srv, ss)
+		}
+		if i.Consume {
+			return
+		}
+	}
+	// Stream catch-all interceptions
+	// XXX: only the last one defines the response right now! Ctx is ok
+	for _, i := range ci.catchAll {
+		log.Println("[Stream] Catchall interceptor:", i)
+		if i.StreamFunc != nil {
+			err = i.StreamFunc(srv, ss, info, handler)
+		}
+
+		if i.Consume {
+			return
+		}
+	}
+	// End of chain: default (last) handler as fallback
+	err = handler(srv, ss)
 	return
 }
