@@ -113,9 +113,6 @@ func (c *Client) DialUnsecure(peerID string) (*ClientConnPlus, error) {
 		return nil, fmt.Errorf("could not connect: %v", err)
 	}
 
-	// TODO: invoke pairing module here!
-
-	// Return Pairing module or channel with progress? So user can call custom methods?
 	return &ClientConnPlus{conn, cs}, err
 }
 
