@@ -2,7 +2,6 @@ package srpc
 
 import (
 	"fmt"
-	"log"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -75,7 +74,7 @@ func (ci *RoutedInterceptor) AddMultiple(ds []UnaryInterceptInfo) error {
 func (ci *RoutedInterceptor) InvokeUnary(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
 	// Routed interceptions
 	if i, ok := ci.directed[info.FullMethod]; ok {
-		log.Println("[Unary] Directed interceptor:", i)
+		// log.Println("[Unary] Directed interceptor:", i)
 		if i.UnaryFunc != nil {
 			resp, err = i.UnaryFunc(ctx, req, info, handler)
 		} else {
@@ -89,7 +88,7 @@ func (ci *RoutedInterceptor) InvokeUnary(ctx context.Context, req interface{}, i
 	// XXX: only the last one defines the response right now! Ctx is ok
 	for _, i := range ci.catchAll {
 		// TODO: adapt to chain multiple handlers
-		log.Println("[Unary] Catchall interceptor:", i)
+		// log.Println("[Unary] Catchall interceptor:", i)
 		if i.UnaryFunc != nil {
 			resp, err = i.UnaryFunc(ctx, req, info, handler)
 		}
@@ -106,7 +105,7 @@ func (ci *RoutedInterceptor) InvokeUnary(ctx context.Context, req interface{}, i
 func (ci *RoutedInterceptor) InvokeStream(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) (err error) {
 	// Routed stream interceptions
 	if i, ok := ci.directed[info.FullMethod]; ok {
-		log.Println("[Stream] Directed interceptor:", i)
+		// log.Println("[Stream] Directed interceptor:", i)
 		if i.StreamFunc != nil {
 			err = i.StreamFunc(srv, ss, info, handler)
 		} else {
@@ -119,7 +118,7 @@ func (ci *RoutedInterceptor) InvokeStream(srv interface{}, ss grpc.ServerStream,
 	// Stream catch-all interceptions
 	// XXX: only the last one defines the response right now! Ctx is ok
 	for _, i := range ci.catchAll {
-		log.Println("[Stream] Catchall interceptor:", i)
+		// log.Println("[Stream] Catchall interceptor:", i)
 		if i.StreamFunc != nil {
 			err = i.StreamFunc(srv, ss, info, handler)
 		}
