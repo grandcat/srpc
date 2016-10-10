@@ -42,13 +42,13 @@ type Client struct {
 	opts        options
 }
 
-func NewClient(opts ...Option) Client {
+func NewClient(opts ...Option) *Client {
 	var conf options
 	for _, o := range opts {
 		o(&conf)
 	}
 
-	return Client{
+	return &Client{
 		opts:       conf,
 		ClientAuth: authentication.NewClientAuth(),
 	}
@@ -136,7 +136,7 @@ func (c *Client) Dial(peerID string) (*grpc.ClientConn, error) {
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(peerID, grpc.WithTransportCredentials(ta), grpc.WithBalancer(c.rpcBalancer))
 	if err != nil {
-		return nil, fmt.Errorf("could not connect: %v", err)
+		return nil, fmt.Errorf("could not dial: %v", err)
 	}
 
 	c.rpcConn = conn
