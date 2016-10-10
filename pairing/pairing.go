@@ -20,6 +20,8 @@ import (
 	"golang.org/x/net/context"
 )
 
+const ApprovalBuffer = 8
+
 var (
 	StatusRejected = errors.New("pairing rejected by peer")
 )
@@ -59,7 +61,7 @@ func NewServerApproval(p *authentication.PeerCertMgr, info gtypeAny.Any) Pairing
 	return &ApprovalPairing{
 		certMgr: p,
 		info:    info,
-		nch:     make(chan PeerIdentity, 8),
+		nch:     make(chan PeerIdentity, ApprovalBuffer),
 	}
 }
 
