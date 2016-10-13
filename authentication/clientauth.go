@@ -2,7 +2,6 @@ package authentication
 
 import (
 	"fmt"
-	"log"
 	"net"
 
 	"github.com/grandcat/srpc"
@@ -77,16 +76,16 @@ func authenticate(ctx context.Context, server interface{}) (context.Context, err
 
 	switch auth := pr.AuthInfo.(type) {
 	case credentials.TLSInfo:
-		log.Println(">>TLSInfo:", auth.State)
+		// log.Println(">>TLSInfo:", auth.State)
 		peerCert := auth.State.PeerCertificates[0]
 
 		if srvCtx, ok := server.(Auth); ok {
 			peerCertMgr := srvCtx.GetPeerCerts()
 			// Check for peer's identity being available and valid, otherwise abort
-			identity, err := peerCertMgr.VerifyPeerIdentity(peerCert)
+			_, err := peerCertMgr.VerifyPeerIdentity(peerCert)
 			if err == nil {
 				ctx = NewAuthContext(ctx, &AuthState{ID: PeerID(peerCert.Subject.CommonName), Addr: pr.Addr, Verified: true})
-				log.Printf("Peer identity ok: %v \n", identity)
+				// log.Printf("Peer identity ok: %v \n", identity)
 			} else {
 				return nil, err
 			}

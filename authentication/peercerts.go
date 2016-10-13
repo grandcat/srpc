@@ -181,11 +181,11 @@ func (cm *PeerCertMgr) VerifyPeerIdentity(remote *x509.Certificate) (*PeerCert, 
 		Intermediates: x509.NewCertPool(),
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
-	chains, err := remote.Verify(opts)
+	_, err := remote.Verify(opts)
 	if err != nil {
 		return nil, errors.New("peercerts: failed to verify client's certificate: " + err.Error())
 	}
-	log.Println("Verfied cert chains:", chains)
+	// log.Println("Verified cert chains:", chains)
 
 	// Secondary check:
 	// Check role of deposited certificate for the requesting peer
