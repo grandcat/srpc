@@ -144,6 +144,12 @@ func (c *Client) Dial(peerID string) (*grpc.ClientConn, error) {
 }
 
 func (c *Client) TearDown() {
-	c.rpcConn.Close()
+	// Remove balancer so it is not used for a new Dial().
+	// It is closed by the associated ClientConn. See below.
+	c.rpcBalancer = nil
+
+	if c.rpcConn != nil {
+		c.rpcConn.Close()
+	}
 	log.Println("client: teardown done")
 }

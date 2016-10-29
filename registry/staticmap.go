@@ -34,11 +34,12 @@ func (sam *StaticAddrMap) Resolve(target string) (naming.Watcher, error) {
 		return nil, fmt.Errorf("StaticAddrMap resolver can only handle URIs ending with %s", uriSuffix)
 	}
 
-	_, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
 
 	log.Println("new StaticAddrMap resolver requested")
 	w := &resolvWatcher{
 		target: target,
+		ctx:    ctx,
 		cancel: cancel,
 		done:   false,
 	}
@@ -49,6 +50,7 @@ func (sam *StaticAddrMap) Resolve(target string) (naming.Watcher, error) {
 // resolvWatcher implements naming.Watcher
 type resolvWatcher struct {
 	target string
+	ctx    context.Context
 	cancel context.CancelFunc
 
 	done bool
@@ -56,6 +58,11 @@ type resolvWatcher struct {
 
 func (rw *resolvWatcher) Next() ([]*naming.Update, error) {
 	log.Printf("Starting to resolv. Consumes %v from now on", resolvWaitTime)
+
+	if err := rw.ctx.Err(); err != nil {
+		log.Printf("Resolver: %v", err.Error())
+		return nil, err
+	}
 	// Simulate some prcessing time to resolv the addr
 	time.Sleep(resolvWaitTime)
 
