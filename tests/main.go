@@ -52,7 +52,7 @@ func main() {
 		tlsKeyPrim := server.TLSKeyFile(*certFile, *keyFile)
 		allServer := &Logic{server.NewServer(tlsKeyPrim)}
 		// Register pairing module
-		mPairing := pairing.NewServerApproval(allServer.GetPeerCerts(), gtypeAny.Any{"flexsmc/peerinfo", []byte{1, 2, 3}})
+		mPairing := pairing.NewServerApproval(allServer.PeerCerts(), gtypeAny.Any{"flexsmc/peerinfo", []byte{1, 2, 3}})
 		allServer.RegisterModules(mPairing)
 		// myServer := LogicEntity(baseServer)
 		// innerServer := server.Serverize(myServer)
@@ -93,14 +93,14 @@ func testClient() {
 	cl := client.NewClient(tlsKeyPrim)
 	defer cl.TearDown()
 
-	// modPair := pairing.NewApprovalPairing(cl.GetPeerCerts())
+	// modPair := pairing.NewApprovalPairing(cl.PeerCerts())
 
 	// Pairing
 	connP, err := cl.DialUnsecure(peerID)
 	if err != nil {
 		panic(err)
 	}
-	pr := pairing.NewClientApproval(cl.GetPeerCerts(), connP)
+	pr := pairing.NewClientApproval(cl.PeerCerts(), connP)
 	ctx2, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	gwIdentity, err := pr.StartPairing(ctx2, &gtypeAny.Any{"flexsmc/peerinfo", []byte{3, 4, 5}})
 	if err != nil {

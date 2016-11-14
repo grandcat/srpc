@@ -56,7 +56,7 @@ func NewClient(opts ...Option) *Client {
 
 func (c *Client) prepare() {
 	// XXX: load default server certificate for now
-	// peerCertMgr := c.GetPeerCerts()
+	// peerCertMgr := c.PeerCerts()
 	// peerCertMgr.LoadFromPath("client/")
 
 	// Custom name resolution with standard RoundRobin balancer
@@ -126,7 +126,7 @@ func (c *Client) Dial(peerID string) (*grpc.ClientConn, error) {
 
 	tc := &tls.Config{
 		Certificates: c.opts.keyPairs,
-		RootCAs:      c.GetPeerCerts().ManagedCertPool,
+		RootCAs:      c.PeerCerts().ManagedCertPool,
 		ServerName:   peerID, //< necessary as IP SANs do not work in a dynamic environment
 		// InsecureSkipVerify: true,
 	}

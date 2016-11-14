@@ -13,7 +13,7 @@ import (
 
 type Auth interface {
 	srpc.ServerModule
-	GetPeerCerts() *PeerCertMgr
+	PeerCerts() *PeerCertMgr
 }
 
 type authStateKey struct{}
@@ -37,13 +37,13 @@ func FromAuthContext(ctx context.Context) (a *AuthState, ok bool) {
 }
 
 type ClientAuth struct {
-	PeerCerts *PeerCertMgr
+	crtMgr *PeerCertMgr
 }
 
 func NewClientAuth() ClientAuth {
 	m := NewPeerCertMgr()
 	return ClientAuth{
-		PeerCerts: m,
+		crtMgr: m,
 	}
 }
 
@@ -64,8 +64,8 @@ func (ca *ClientAuth) InterceptMethods() []srpc.UnaryInterceptInfo {
 	}
 }
 
-func (ca *ClientAuth) GetPeerCerts() *PeerCertMgr {
-	return ca.PeerCerts
+func (ca *ClientAuth) PeerCerts() *PeerCertMgr {
+	return ca.crtMgr
 }
 
 func authenticate(ctx context.Context, server interface{}) (context.Context, error) {
@@ -80,7 +80,7 @@ func authenticate(ctx context.Context, server interface{}) (context.Context, err
 		peerCert := auth.State.PeerCertificates[0]
 
 		if srvCtx, ok := server.(Auth); ok {
-			peerCertMgr := srvCtx.GetPeerCerts()
+			peerCertMgr := srvCtx.PeerCerts()
 			// Check for peer's identity being available and valid, otherwise abort
 			_, err := peerCertMgr.VerifyPeerIdentity(peerCert)
 			if err == nil {

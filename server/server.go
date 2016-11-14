@@ -94,7 +94,7 @@ func (s *Server) RegisterModules(mods ...srpc.ServerModule) error {
 }
 
 func (s *Server) Build() (*grpc.Server, error) {
-	peerCertMgr := s.GetPeerCerts()
+	peerCertMgr := s.PeerCerts()
 
 	// Check server key pair
 	if len(s.opts.keyPairs) == 0 {
