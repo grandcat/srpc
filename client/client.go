@@ -60,7 +60,8 @@ func (c *Client) prepare() {
 	// peerCertMgr.LoadFromPath("client/")
 
 	// Custom name resolution with standard RoundRobin balancer
-	c.rpcBalancer = grpc.RoundRobin(new(registry.StaticAddrMap))
+	// c.rpcBalancer = grpc.RoundRobin(new(registry.StaticAddrMap))
+	c.rpcBalancer = grpc.RoundRobin(registry.NewServiceDiscovery())
 }
 
 type ClientConnPlus struct {
@@ -128,7 +129,6 @@ func (c *Client) Dial(peerID string) (*grpc.ClientConn, error) {
 		Certificates: c.opts.keyPairs,
 		RootCAs:      c.PeerCerts().ManagedCertPool,
 		ServerName:   peerID, //< necessary as IP SANs do not work in a dynamic environment
-		// InsecureSkipVerify: true,
 	}
 	tc.BuildNameToCertificate()
 	ta := credentials.NewTLS(tc)

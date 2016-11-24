@@ -63,9 +63,10 @@ type Server struct {
 }
 
 func NewServer(opts ...Option) Server {
-	var conf options
-	// Default options
-	conf.strictness = tls.RequireAnyClientCert
+	// Apply default options
+	var conf = options{
+		strictness: tls.RequireAnyClientCert,
+	}
 	// Apply external config
 	for _, o := range opts {
 		o(&conf)
@@ -94,9 +95,7 @@ func (s *Server) RegisterModules(mods ...srpc.ServerModule) error {
 }
 
 func (s *Server) Build() (*grpc.Server, error) {
-	peerCertMgr := s.PeerCerts()
-
-	// Check server key pair
+	// Require server key pair
 	if len(s.opts.keyPairs) == 0 {
 		return nil, fmt.Errorf("No TLS key pair loaded.")
 	}
@@ -109,6 +108,7 @@ func (s *Server) Build() (*grpc.Server, error) {
 	// }
 
 	// XXX: dynamically add client cert later
+	peerCertMgr := s.PeerCerts()
 	go func() {
 		time.Sleep(5 * time.Second)
 		// Import and persist managed certificates to disk
@@ -156,8 +156,8 @@ func (s *Server) Build() (*grpc.Server, error) {
 	}
 	tlsConfig.BuildNameToCertificate()
 	ta := credentials.NewTLS(tlsConfig)
-
 	s.rpc = grpc.NewServer(grpc.Creds(ta), grpc.UnaryInterceptor(s.Interceptor.InvokeUnary), grpc.StreamInterceptor(s.Interceptor.InvokeStream))
+
 	// Register server modules for this gRPC server if necessary
 	s.Auth.RegisterServer(s.rpc) //< not used
 	for _, m := range s.mods {
