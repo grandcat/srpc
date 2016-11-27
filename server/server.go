@@ -3,7 +3,6 @@ package server
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -15,21 +14,21 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-var (
-	port = flag.Int("port", 50051, "The server port")
-)
-
-type Serverize interface {
-	authentication.Auth
-}
-
 type options struct {
+	port       uint16
 	keyPairs   []tls.Certificate
 	strictness tls.ClientAuthType
 }
 
 // Option fills the option struct to configure TLS keys etc.
 type Option func(*options)
+
+// Port assigns the server port listening for connections.
+func Port(p uint16) Option {
+	return func(o *options) {
+		o.port = p
+	}
+}
 
 // TLSKeyFile defines the server's TLS certificate used to authenticate
 // against a client.
@@ -63,20 +62,20 @@ type Server struct {
 }
 
 func NewServer(opts ...Option) Server {
-	// Apply default options
+	// Apply default configuration
 	var conf = options{
+		port:       50051,
 		strictness: tls.RequireAnyClientCert,
 	}
 	// Apply external config
 	for _, o := range opts {
 		o(&conf)
 	}
-
 	// Authentication module is a fixed part. Due to dependencies, load it first.
-	clAuth := authentication.NewClientAuth()
-	srpc.GlobalRoutedInterceptor.AddMultiple(clAuth.InterceptMethods())
+	clientAuth := authentication.NewClientAuth()
+	srpc.GlobalRoutedInterceptor.AddMultiple(clientAuth.InterceptMethods())
 	return Server{
-		Auth:        &clAuth,
+		Auth:        &clientAuth,
 		Interceptor: srpc.GlobalRoutedInterceptor,
 		opts:        conf,
 	}
@@ -171,12 +170,14 @@ func (s *Server) Build() (*grpc.Server, error) {
 // the RPC backend (gRPC).
 // TODO: config listening address
 func (s *Server) Serve() error {
-	lis, err := net.Listen("tcp", ":50051")
+	laddr := fmt.Sprintf(":%d", s.opts.port)
+	lis, err := net.Listen("tcp", laddr)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 		return err
 	}
 
+	log.Printf("srpc: listening on %s", laddr)
 	err = s.rpc.Serve(lis)
 	if err != nil {
 		log.Fatalf("rpc backend failed: %v", err)
