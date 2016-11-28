@@ -18,7 +18,8 @@ type ServiceDiscovery struct {
 }
 
 func NewServiceDiscovery() *ServiceDiscovery {
-	mdns, err := zeroconf.NewResolver(nil)
+	ipv6only := zeroconf.SelectIPTraffic(zeroconf.IPv6)
+	mdns, err := zeroconf.NewResolver(ipv6only)
 	if err != nil {
 		panic("could not init mDNS Resolver")
 	}
