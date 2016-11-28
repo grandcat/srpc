@@ -69,6 +69,10 @@ type ClientConnPlus struct {
 	TLSState <-chan tls.ConnectionState
 }
 
+func (cp *ClientConnPlus) TearDown() {
+	cp.CC.Close()
+}
+
 func (c *Client) DialUnsecure(peerID string) (*ClientConnPlus, error) {
 	if len(c.opts.keyPairs) == 0 {
 		return nil, fmt.Errorf("Load TLS key pair first.")

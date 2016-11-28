@@ -7,6 +7,8 @@ import (
 
 	"strings"
 
+	"context"
+
 	zeroconf "github.com/grandcat/zeroconf.sd"
 	"google.golang.org/grpc/naming"
 )
@@ -31,25 +33,29 @@ func NewServiceDiscovery() *ServiceDiscovery {
 }
 
 func (sd *ServiceDiscovery) Resolve(target string) (naming.Watcher, error) {
+	ctx, cancel := context.WithCancel(context.Background())
 	entries := make(chan *zeroconf.ServiceEntry)
 	// XXX: replace hardcoded service and domain names
 	target = strings.TrimSuffix(target, ".flexsmc.local")
-	if err := sd.mdns.Lookup(target, "_flexsmc._tcp", "", entries); err != nil {
+	if err := sd.mdns.Lookup(ctx, target, "_flexsmc._tcp", "", entries); err != nil {
+		cancel()
 		return nil, err
 	}
 
 	return &mdnsWatcher{
-		target:  target,
-		updates: entries,
-		done:    make(chan struct{}),
+		ctx:          ctx,
+		target:       target,
+		updates:      entries,
+		cancelLookup: cancel,
 	}, nil
 }
 
 type mdnsWatcher struct {
+	ctx          context.Context
 	target       string
 	updates      <-chan *zeroconf.ServiceEntry
 	markedForDel []*naming.Update
-	done         chan struct{}
+	cancelLookup context.CancelFunc
 }
 
 func (w *mdnsWatcher) Next() ([]*naming.Update, error) {
@@ -82,7 +88,7 @@ func (w *mdnsWatcher) Next() ([]*naming.Update, error) {
 		}
 		log.Printf("Extracted IPs: %v", results)
 
-	case <-w.done:
+	case <-w.ctx.Done():
 		log.Printf("[%s] mdnsWatcher stopped", w.target)
 		return nil, errNoMoreUpdates
 	}
@@ -91,5 +97,5 @@ func (w *mdnsWatcher) Next() ([]*naming.Update, error) {
 }
 
 func (w *mdnsWatcher) Close() {
-	close(w.done)
+	w.cancelLookup()
 }
