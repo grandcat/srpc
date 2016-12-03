@@ -9,7 +9,7 @@ import (
 
 	"context"
 
-	zeroconf "github.com/grandcat/zeroconf.sd"
+	"github.com/grandcat/zeroconf"
 	"google.golang.org/grpc/naming"
 )
 
