@@ -15,6 +15,7 @@ import (
 )
 
 type options struct {
+	commonName string
 	port       uint16
 	keyPairs   []tls.Certificate
 	strictness tls.ClientAuthType
@@ -31,7 +32,8 @@ func Port(p uint16) Option {
 }
 
 // TLSKeyFile defines the server's TLS certificate used to authenticate
-// against a client.
+// against a client. It also sets the pub key's common name as default
+// one for the server's name.
 func TLSKeyFile(certFile, keyFile string) Option {
 	return func(o *options) {
 		c, err := tls.LoadX509KeyPair(certFile, keyFile)
@@ -39,6 +41,10 @@ func TLSKeyFile(certFile, keyFile string) Option {
 			panic("could not load TLS cert/key pair")
 		}
 		o.keyPairs = append(o.keyPairs, c)
+		// Extract common name if available.
+		if pubCert, err := x509.ParseCertificate(c.Certificate[0]); err == nil {
+			o.commonName = pubCert.Subject.CommonName
+		}
 	}
 }
 
@@ -64,7 +70,8 @@ type Server struct {
 func NewServer(opts ...Option) Server {
 	// Apply default configuration
 	var conf = options{
-		port:       50051,
+		port: 50051,
+		// Verification done by interceptor.
 		strictness: tls.RequireAnyClientCert,
 	}
 	// Apply external config
@@ -79,6 +86,10 @@ func NewServer(opts ...Option) Server {
 		Interceptor: srpc.GlobalRoutedInterceptor,
 		opts:        conf,
 	}
+}
+
+func (s *Server) CommonName() string {
+	return s.opts.commonName
 }
 
 func (s *Server) RegisterModules(mods ...srpc.ServerModule) error {
@@ -153,6 +164,7 @@ func (s *Server) Build() (*grpc.Server, error) {
 		MinVersion: tls.VersionTLS12,
 		// SessionTicketsDisabled: true,
 	}
+	// TODO: register s.CommonName if does not match any entry in config.
 	tlsConfig.BuildNameToCertificate()
 	ta := credentials.NewTLS(tlsConfig)
 	s.rpc = grpc.NewServer(grpc.Creds(ta), grpc.UnaryInterceptor(s.Interceptor.InvokeUnary), grpc.StreamInterceptor(s.Interceptor.InvokeStream))
