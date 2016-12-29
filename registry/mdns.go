@@ -72,21 +72,23 @@ func (w *mdnsWatcher) Next() ([]*naming.Update, error) {
 			return nil, errNoMoreUpdates
 		}
 		log.Println(s)
-		// Extract all IPs for this service. Prefer IPv6 over IPv4.
+		// Extract all IPs for this service. Prefer IPv6.
 		// Also add to marked entries to be removed next time if a new update arrives.
 		for _, ip := range s.AddrIPv6 {
 			tcpAddr := net.TCPAddr{IP: ip, Port: s.Port}
 			addr := tcpAddr.String()
 			results = append(results, &naming.Update{Op: naming.Add, Addr: addr})
 			w.markedForDel = append(w.markedForDel, &naming.Update{Op: naming.Delete, Addr: addr})
+			// XXX: only use first IPv6 to enforce "static" behavior instead of round robin.
+			break
 		}
-		for _, ip := range s.AddrIPv4 {
-			tcpAddr := net.TCPAddr{IP: ip, Port: s.Port}
-			addr := tcpAddr.String()
-			results = append(results, &naming.Update{Op: naming.Add, Addr: addr})
-			w.markedForDel = append(w.markedForDel, &naming.Update{Op: naming.Delete, Addr: addr})
-		}
-		log.Printf("Extracted IPs: %v", results)
+		log.Printf("Extracted IPv6s: %v", results)
+		// for _, ip := range s.AddrIPv4 {
+		// 	tcpAddr := net.TCPAddr{IP: ip, Port: s.Port}
+		// 	addr := tcpAddr.String()
+		// 	results = append(results, &naming.Update{Op: naming.Add, Addr: addr})
+		// 	w.markedForDel = append(w.markedForDel, &naming.Update{Op: naming.Delete, Addr: addr})
+		// }
 
 	case <-w.ctx.Done():
 		log.Printf("[%s] mdnsWatcher stopped", w.target)
