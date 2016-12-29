@@ -63,8 +63,9 @@ type Server struct {
 	Interceptor *srpc.RoutedInterceptor
 	mods        []srpc.ServerModule
 	// gRPC structs and options
-	rpc  *grpc.Server
-	opts options
+	rpc      *grpc.Server
+	shutdown chan struct{}
+	opts     options
 }
 
 func NewServer(opts ...Option) Server {
@@ -84,6 +85,7 @@ func NewServer(opts ...Option) Server {
 	return Server{
 		Auth:        &clientAuth,
 		Interceptor: srpc.GlobalRoutedInterceptor,
+		shutdown:    make(chan struct{}),
 		opts:        conf,
 	}
 }
@@ -180,7 +182,6 @@ func (s *Server) Build() (*grpc.Server, error) {
 
 // Serve starts listening for incoming connections and serves the requests through
 // the RPC backend (gRPC).
-// TODO: config listening address
 func (s *Server) Serve() error {
 	laddr := fmt.Sprintf(":%d", s.opts.port)
 	lis, err := net.Listen("tcp", laddr)
@@ -188,19 +189,38 @@ func (s *Server) Serve() error {
 		log.Fatalf("failed to listen: %v", err)
 		return err
 	}
-
 	log.Printf("srpc: listening on %s", laddr)
+
+	// go func(lis net.Listener) {
 	err = s.rpc.Serve(lis)
 	if err != nil {
 		log.Fatalf("rpc backend failed: %v", err)
-		return err
+		return nil
 	}
+	// }(lis)
+
+	// Clean exit on Ctrl-c or process termination.
+	// sig := make(chan os.Signal, 1)
+	// signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	// <-sig
+	// close(s.shutdown)
+
+	log.Println("srpc: shutting down.")
 
 	return nil
 }
 
 func (s *Server) TearDown() {
 	if s.rpc != nil {
-		s.rpc.Stop()
+		server := s.rpc
+		s.rpc = nil
+		server.Stop()
 	}
+}
+
+// ShuttingDown exposes the shutdown context to higher-level services if
+// a termination signal was received.
+// XXX: make thread-safe.
+func (s *Server) ShuttingDown() <-chan struct{} {
+	return s.shutdown
 }
