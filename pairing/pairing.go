@@ -39,13 +39,17 @@ type Pairing interface {
 }
 
 type PeerIdentity interface {
+	// PeerID identifies a peer by its CommonName stored in the showed certificate.
+	PeerID() string
+	// Fingerprint clearly describes a peer's certificate in raw format.
 	Fingerprint() authentication.CertFingerprint
+	// FingerprintHex clearly describes a peer's certificate in hexadecimal format.
 	FingerprintHex() string
-	// User-supplied information passed with pairing
+	// Details gives user-supplied information passed during pairing.
 	Details() gtypeAny.Any
-	// Accept this peer
+	// Accept this peer.
 	Accept()
-	// Reject this peer
+	// Reject this peer.
 	Reject()
 }
 
@@ -100,7 +104,6 @@ func certsFromCtx(ctx context.Context) ([]*x509.Certificate, error) {
 	var peerCerts []*x509.Certificate
 	switch auth := pr.AuthInfo.(type) {
 	case credentials.TLSInfo:
-		log.Println("TLSInfo:", auth.State)
 		peerCerts = auth.State.PeerCertificates
 
 	default:
@@ -116,8 +119,8 @@ func certsFromCtx(ctx context.Context) ([]*x509.Certificate, error) {
 
 // Register defines the function handler for the server-side RPC service definition.
 func (a *ApprovalPairing) Register(ctx context.Context, in *proto.RegisterRequest) (*proto.StatusReply, error) {
-	log.Println("RPC `Register` called within ApprovalPairing")
-	// Dummy
+	// log.Println("RPC `Register` called within ApprovalPairing")
+
 	// PeerCertMgr temporarily stores the client certificate provided during the TLS session.
 	// If Register returns an error, the certificate provided by the client, is not added to the pool at all:
 	// E.g. errors.New("Not responsible for this peer")
@@ -262,6 +265,10 @@ type peerIdentity struct {
 	cm       *authentication.PeerCertMgr
 	peerCert *x509.Certificate
 	info     gtypeAny.Any
+}
+
+func (pi *peerIdentity) PeerID() string {
+	return pi.peerCert.Subject.CommonName
 }
 
 func (pi *peerIdentity) Fingerprint() authentication.CertFingerprint {
